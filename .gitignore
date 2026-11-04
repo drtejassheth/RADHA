@@ -1,0 +1,14 @@
+node_modules/
+smoke-out/
+*.log
+.DS_Store
+
+# build output (installer is ~125 MB; rebuild with `npm run dist`)
+dist/
+# local test output
+smoke*/
+# Python
+__pycache__/
+.venv/
+# never commit keys
+.env

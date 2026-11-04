@@ -1,0 +1,60 @@
+{
+  "name": "radha",
+  "productName": "RADHA",
+  "version": "0.1.0",
+  "description": "RADHA — Report Analysis & Deterministic Health Assistant",
+  "type": "module",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "setup:python": "python3 -m pip install -r python/requirements.txt",
+    "dist": "electron-builder --mac dmg --arm64"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0",
+    "adm-zip": "^0.6.1",
+    "chart.js": "^4.6.1"
+  },
+  "devDependencies": {
+    "electron": "^45.2.2",
+    "electron-builder": "^26.18.0"
+  },
+  "author": "Dr. Tejas Sheth",
+  "build": {
+    "appId": "com.radha.medical-report-processor",
+    "productName": "RADHA",
+    "copyright": "RADHA — decision support only, not a diagnosis",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "python/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asarUnpack": [
+      "python/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.medical",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null
+    },
+    "dmg": {
+      "title": "RADHA ${version}",
+      "artifactName": "RADHA-${version}-arm64.dmg"
+    }
+  }
+}

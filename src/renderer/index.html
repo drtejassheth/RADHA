@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RADHA</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="../../node_modules/chart.js/dist/chart.umd.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">R</div>
+      <div>
+        <div class="brand-name">RADHA</div>
+        <div class="brand-sub">Report Analysis &amp; Deterministic Health Assistant</div>
+      </div>
+    </div>
+    <nav id="nav">
+      <button data-view="patients"><span class="ico">👤</span>Patients</button>
+      <button data-view="ingest" class="active"><span class="ico">⬆</span>Ingest reports</button>
+      <button data-view="verify"><span class="ico">✎</span>Verify values <span class="badge" id="queueBadge" hidden></span></button>
+      <div class="nav-sep">Results</div>
+      <button data-view="dashboard" data-needs-report><span class="ico">◧</span>Summary dashboard</button>
+      <button data-view="labs" data-needs-report><span class="ico">≣</span>Lab results</button>
+      <button data-view="calculators" data-needs-report><span class="ico">∑</span>Calculators</button>
+      <button data-view="analysis" data-needs-report><span class="ico">✚</span>Clinical analysis</button>
+      <button data-view="trends"><span class="ico">↗</span>Multi-year trends</button>
+      <button data-view="library"><span class="ico">☰</span>Calculator library</button>
+      <div class="nav-sep">App</div>
+      <button data-view="settings"><span class="ico">⚙</span>Settings</button>
+    </nav>
+    <div class="sidebar-foot">
+      Decision support only. Not a diagnosis.<br />Always follow your doctor's advice.
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div>
+        <h1 id="viewTitle">Ingest reports</h1>
+        <div id="patientChip" class="patient-chip" hidden></div>
+      </div>
+      <div class="topbar-actions">
+        <label class="lang">
+          <span>Language</span>
+          <select id="langSelect" title="Translate clinical interpretations and advice"></select>
+        </label>
+        <label class="lang">
+          <span>via</span>
+          <select id="trSelect" title="Translation service"></select>
+        </label>
+        <button id="exportBtn" class="btn primary" disabled title="Download the analysed summary as PDF">⤓ Export PDF</button>
+      </div>
+    </header>
+    <div id="banner" class="banner" hidden></div>
+    <section id="view" class="view"></section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+</body>
+</html>

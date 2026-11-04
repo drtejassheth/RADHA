@@ -1,0 +1,16 @@
+# RADHA local parsing engines. Install what you need; each is optional.
+# Docling and Marker need Python 3.10+ and download models on first use.
+
+# Fast text-layer extraction (digital PDFs) — recommended minimum
+pdfplumber>=0.11
+pymupdf>=1.24
+
+# IBM Docling — layout-aware tables to Markdown
+docling>=2.0
+
+# Marker (uses Surya OCR + layout models)
+marker-pdf>=1.0
+
+# EasyOCR — scanned / photographed reports (uses pypdfium2 from pdfplumber to render pages)
+easyocr>=1.7
+numpy

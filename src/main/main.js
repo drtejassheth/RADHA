@@ -1,0 +1,219 @@
+// RADHA — Electron main process.
+// Owns everything that touches the file system, Python, or the network,
+// and exposes it to the renderer through a narrow IPC surface (see preload.cjs).
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { parseLocal, checkPythonEngines } from './localParser.js';
+import { sarvamParsePdf } from './sarvam.js';
+import { TRANSLATORS, translateTexts } from './translators.js';
+import { Store } from './store.js';
+import { PROVIDERS, aiChat, aiListModels } from './aiProviders.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, '..', '..');
+
+let mainWindow;
+let store;
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 920,
+    minWidth: 1100,
+    minHeight: 720,
+    title: 'RADHA — Report Analysis & Deterministic Health Assistant',
+    backgroundColor: '#f6f7f9',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  mainWindow.loadFile(path.join(ROOT, 'src', 'renderer', 'index.html'));
+  // Open external links in the system browser, never inside the app.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+}
+
+function settingsForPython() {
+  const s = store.getSettings();
+  return { pythonPath: s.pythonPath || (process.platform === 'win32' ? 'python' : 'python3') };
+}
+
+function wrap(fn) {
+  // Return {ok, data | error} so the renderer never sees a raw rejected IPC promise.
+  return async (_evt, ...args) => {
+    try {
+      return { ok: true, data: await fn(...args) };
+    } catch (err) {
+      console.error(err);
+      return { ok: false, error: err?.message || String(err) };
+    }
+  };
+}
+
+function registerIpc() {
+  ipcMain.handle('settings:get', wrap(() => store.getSettings({ redactKey: true })));
+  ipcMain.handle('settings:set', wrap((patch) => store.setSettings(patch)));
+
+  ipcMain.handle('python:check', wrap(() => checkPythonEngines(settingsForPython())));
+
+  ipcMain.handle('parse:pdf', wrap(async ({ filePath, engine }) => {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) throw new Error('Not a file: ' + filePath);
+    if (engine === 'sarvam') {
+      const key = store.getApiKey();
+      if (!key) throw new Error('Sarvam AI API key is not set. Add it in Settings.');
+      const s = store.getSettings();
+      return sarvamParsePdf(filePath, key, { language: s.sarvamParseLanguage || 'en-IN' });
+    }
+    return parseLocal(filePath, engine, settingsForPython());
+  }));
+
+  ipcMain.handle('dialog:openPdf', wrap(async () => {
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select blood test report(s)',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    return res.canceled ? [] : res.filePaths;
+  }));
+
+  ipcMain.handle('translate:services', wrap(() => TRANSLATORS.map((t) => ({
+    ...t, hasKey: Boolean(store.getProviderKey(t.id === 'sarvam' ? 'sarvam' : `tr_${t.id}`)),
+  }))));
+  ipcMain.handle('translate:run', wrap(({ texts, target, service }) => {
+    const s = store.getSettings();
+    return translateTexts(service || s.translationProvider, texts, target, { settings: s, getKey: (id) => store.getProviderKey(id) });
+  }));
+
+  ipcMain.handle('ai:providers', wrap(() => {
+    const s = store.getSettings();
+    return PROVIDERS.map(({ id, name, needsKey, optionalKey, free, local, note, defaultModel }) => ({
+      id, name, needsKey, optionalKey: Boolean(optionalKey), free: Boolean(free), local: Boolean(local), note,
+      hasKey: Boolean(store.getProviderKey(id)), model: s.aiModels?.[id] || defaultModel,
+    }));
+  }));
+  ipcMain.handle('ai:setKey', wrap(async ({ id, key }) => { await store.setProviderKey(id, key); return true; }));
+  ipcMain.handle('ai:models', wrap((id) => aiListModels(id, { key: store.getProviderKey(id), settings: store.getSettings() })));
+  ipcMain.handle('ai:chat', wrap(({ provider, model, messages }) => {
+    const s = store.getSettings();
+    return aiChat(provider, messages, { model: model || s.aiModels?.[provider], key: store.getProviderKey(provider), settings: s });
+  }));
+
+  ipcMain.handle('db:listReports', wrap(() => store.listReports()));
+  ipcMain.handle('db:listPatients', wrap(() => store.listPatients()));
+  ipcMain.handle('db:savePatient', wrap((p) => store.savePatient(p)));
+  ipcMain.handle('db:deletePatient', wrap(({ id, deleteReports }) => store.deletePatient(id, { deleteReports })));
+  ipcMain.handle('db:mergePatients', wrap(({ fromId, intoId }) => store.mergePatients(fromId, intoId)));
+  ipcMain.handle('db:exportBackup', wrap(async () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Back up RADHA data', defaultPath: path.join(app.getPath('documents'), `RADHA-backup-${stamp}.json`),
+      filters: [{ name: 'RADHA backup', extensions: ['json'] }],
+    });
+    if (canceled || !filePath) return null;
+    await fs.writeFile(filePath, JSON.stringify(store.exportData(), null, 2), 'utf8');
+    return filePath;
+  }));
+  ipcMain.handle('db:importBackup', wrap(async () => {
+    const res = await dialog.showOpenDialog(mainWindow, { title: 'Restore RADHA backup', properties: ['openFile'], filters: [{ name: 'RADHA backup', extensions: ['json'] }] });
+    if (res.canceled || !res.filePaths[0]) return null;
+    return store.importData(JSON.parse(await fs.readFile(res.filePaths[0], 'utf8')));
+  }));
+  ipcMain.handle('file:saveText', wrap(async ({ content, defaultName, filterName, extensions }) => {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: path.join(app.getPath('documents'), defaultName), filters: [{ name: filterName, extensions }],
+    });
+    if (canceled || !filePath) return null;
+    await fs.writeFile(filePath, content, 'utf8');
+    return filePath;
+  }));
+  ipcMain.handle('db:saveReport', wrap((report) => store.saveReport(report)));
+  ipcMain.handle('db:deleteReport', wrap((id) => store.deleteReport(id)));
+
+  ipcMain.handle('export:pdf', wrap(async ({ html, suggestedName }) => {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export RADHA summary',
+      defaultPath: path.join(app.getPath('documents'), suggestedName || 'RADHA-summary.pdf'),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (canceled || !filePath) return null;
+
+    // Render the report HTML in an invisible window, then print it to PDF.
+    const tmp = path.join(app.getPath('temp'), `radha-export-${Date.now()}.html`);
+    await fs.writeFile(tmp, html, 'utf8');
+    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } });
+    try {
+      await win.loadFile(tmp);
+      const pdf = await win.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+        margins: { marginType: 'custom', top: 0.5, bottom: 0.6, left: 0.5, right: 0.5 },
+        displayHeaderFooter: true,
+        headerTemplate: '<span></span>',
+        footerTemplate:
+          '<div style="font-size:7px;width:100%;text-align:center;color:#666;font-family:sans-serif">' +
+          'RADHA summary — not a diagnosis. Follow your medical practitioner\'s advice. ' +
+          'Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>',
+      });
+      await fs.writeFile(filePath, pdf);
+    } finally {
+      win.destroy();
+      fs.unlink(tmp).catch(() => {});
+    }
+    return filePath;
+  }));
+
+  ipcMain.handle('shell:showItem', wrap((p) => shell.showItemInFolder(p)));
+
+  ipcMain.handle('library:index', wrap(async () => (await loadLibrary()).index));
+  ipcMain.handle('library:get', wrap(async (id) => (await loadLibrary()).byId.get(id) || null));
+}
+
+// Calculator library (src/data/calculator-library.json, ~9 MB) is loaded once, on first use.
+let libraryPromise;
+function loadLibrary() {
+  libraryPromise ||= fs.readFile(path.join(ROOT, 'src', 'data', 'calculator-library.json'), 'utf8').then((raw) => {
+    const all = JSON.parse(raw);
+    const byId = new Map(all.map((c) => [c.id, c]));
+    const index = all.map((c) => ({
+      id: c.id, name: c.name, aliases: c.aliases, categories: c.categories, types: c.types,
+      description: (c.description || '').slice(0, 240),
+      inputs: c.versions.reduce((n, v) => Math.max(n, (v.inputs || []).length), 0),
+    }));
+    return { byId, index };
+  });
+  return libraryPromise;
+}
+
+// Smoke-test mode: isolated data folder + scripted walkthrough (see test/smoke.js).
+if (process.env.RADHA_SMOKE) app.setPath('userData', path.join(app.getPath('temp'), `radha-smoke-${process.pid}`));
+
+app.whenReady().then(async () => {
+  if (process.env.RADHA_SMOKE && process.env.RADHA_SMOKE_SEED) {
+    // Smoke tests can start from a copy of an existing database.
+    await fs.mkdir(app.getPath('userData'), { recursive: true });
+    await fs.copyFile(process.env.RADHA_SMOKE_SEED, path.join(app.getPath('userData'), 'radha-db.json'));
+  }
+  store = new Store(app.getPath('userData'));
+  await store.load();
+  registerIpc();
+  createWindow();
+  if (process.env.RADHA_SMOKE) {
+    const { runSmoke } = await import(path.join(ROOT, 'test', 'smoke.js'));
+    runSmoke(mainWindow, process.env.RADHA_SMOKE).finally(() => app.quit());
+  }
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
