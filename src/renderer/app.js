@@ -531,7 +531,7 @@ function withProfileInputs(calcInputs, prof) {
 // ------------------------------------------------------------------ dashboard
 function viewDashboard() {
   const r = state.report;
-  const p = r.patient;
+  const p = effectivePatient(r.patient, profileOf(r.pid)); // profile fills height/weight/DOB the report lacks
   const c = counts(r.rows);
   const tr = currentTranslation();
   const analysis = tr?.analysis || r.analysis;
@@ -1612,11 +1612,15 @@ async function maybeTranslate() {
 async function exportPdf() {
   const r = state.report;
   if (!r) return;
+  if (state.lang !== 'en-IN' && !currentTranslation()) {
+    if (state.translating) { toast(`Still translating into ${langName(state.lang)} — export again in a moment.`, true); return; }
+    if (!confirm(`The ${langName(state.lang)} translation is not available (the translation service may be busy).\n\nExport the summary in English instead?`)) return;
+  }
   const btn = $('#exportBtn');
   btn.disabled = true;
   try {
     const chartImg = renderStatusChartImage(counts(r.rows));
-    const html = buildExportHtml(r, { translation: currentTranslation(), narrative: r.narrative, lang: state.lang, langName: langName(state.lang), chartImg, history: mergeByDate(sameGroup(r)) });
+    const html = buildExportHtml({ ...r, patient: effectivePatient(r.patient, profileOf(r.pid)) }, { translation: currentTranslation(), narrative: r.narrative, lang: state.lang, langName: langName(state.lang), chartImg, history: mergeByDate(sameGroup(r)) });
     const safeName = (r.patient.name || 'patient').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
     const out = await call(api.exportPdf(html, `RADHA-${safeName}-${r.patient.date || 'report'}.pdf`));
     if (out) { toast(`Saved ${out.split(/[\\/]/).pop()}`); api.showItem(out); }

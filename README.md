@@ -1,6 +1,18 @@
 # RADHA — Report Analysis & Deterministic Health Assistant
 
-An Electron desktop app that turns blood-test PDFs into a verified, structured clinical summary, runs medical calculators locally, tracks results across years, and exports a patient-friendly PDF. Clinical text can be translated into Indian and world languages with Sarvam AI.
+An Electron desktop app that turns blood-test PDFs into a verified, structured clinical summary, runs 83 medical calculators locally, tracks results across years, manages patient profiles, and exports a patient-friendly PDF in 23 languages.
+
+![RADHA walkthrough](docs/images/radha-walkthrough.gif)
+
+📖 **[Illustrated user guide](docs/USER-GUIDE.md)**: how to use RADHA, every feature with screenshots, and [how a report is generated](docs/USER-GUIDE.md#4-how-a-report-is-generated).
+
+⬇️ **[Download the macOS installer](../../releases/latest)** · 📄 Sample output: [English PDF](docs/sample/RADHA-sample-summary-english.pdf) · [Gujarati PDF](docs/sample/RADHA-sample-summary-gujarati.pdf)
+
+| Verify every value | Summary dashboard | 83 calculators |
+|---|---|---|
+| ![Verify](docs/images/02-verify.png) | ![Dashboard](docs/images/03-dashboard.png) | ![Calculators](docs/images/05-calculators.png) |
+| **Findings & doctor questions** | **Multi-year trends** | **Your language** |
+| ![Analysis](docs/images/09-analysis.png) | ![Trends](docs/images/12-trends.png) | ![Gujarati](docs/images/13-translated-gujarati.png) |
 
 > RADHA is decision support for patients preparing for a consultation. It does not diagnose. Every export carries a caution note: follow your medical practitioner's advice for treatment and diagnosis confirmation.
 
@@ -127,4 +139,11 @@ Keys are encrypted with the macOS keychain. **Load models** lists what each prov
 ```bash
 npm test                                   # extraction, unit conversion, calculators, analysis
 RADHA_SMOKE=./smoke-out npx electron .     # drives the real UI with demo data, screenshots each view, exports a PDF
+```
+
+**Regenerate the guide's screenshots and GIF** (uses the synthetic demo patient):
+
+```bash
+RADHA_SMOKE=docs/_capture RADHA_SCRIPT=scripts/capture-docs.js npx electron .
+python3 scripts/build_docs_media.py docs/_capture
 ```

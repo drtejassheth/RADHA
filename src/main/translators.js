@@ -88,14 +88,18 @@ export async function batchTranslate(texts, one, { maxChars = 1800, concurrency 
 
 // ---------------------------------------------------------------- services
 
-async function googleFree(text, tl) {
+async function googleFree(text, tl, attempt = 0) {
   const res = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&dt=t&tl=' + encodeURIComponent(tl), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: new URLSearchParams({ q: text }),
     signal: AbortSignal.timeout(30_000),
   });
-  if (res.status === 429) throw new Error('Google Translate (free) is rate-limiting requests — wait a minute or choose another service.');
+  if (res.status === 429) {
+    // Brief rate limits are common on the free endpoint: back off and retry before giving up.
+    if (attempt < 3) { await new Promise((r) => setTimeout(r, 3000 * 2 ** attempt)); return googleFree(text, tl, attempt + 1); }
+    throw new Error('Google Translate (free) is rate-limiting requests — wait a few minutes or choose another service (e.g. MyMemory or Sarvam).');
+  }
   const body = await jsonOrThrow(res, 'Google Translate');
   return (body?.[0] || []).map((seg) => seg?.[0] || '').join('').trim();
 }

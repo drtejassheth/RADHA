@@ -206,7 +206,8 @@ app.whenReady().then(async () => {
   registerIpc();
   createWindow();
   if (process.env.RADHA_SMOKE) {
-    const { runSmoke } = await import(path.join(ROOT, 'test', 'smoke.js'));
+    // RADHA_SCRIPT swaps in another automation script (e.g. scripts/capture-docs.js for the guide's screenshots).
+    const { runSmoke } = await import(path.resolve(ROOT, process.env.RADHA_SCRIPT || path.join('test', 'smoke.js')));
     runSmoke(mainWindow, process.env.RADHA_SMOKE).finally(() => app.quit());
   }
   app.on('activate', () => {

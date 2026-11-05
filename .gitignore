@@ -12,3 +12,4 @@ __pycache__/
 .venv/
 # never commit keys
 .env
+docs/_capture/
