@@ -20,7 +20,7 @@
 
 ## 1. Install and open
 
-1. Download **`RADHA-0.1.0-arm64.dmg`** from the [Releases](../../../releases) page (Apple-silicon Macs).
+1. Download the latest **`RADHA-…-arm64.dmg`** from the [Releases](../../../releases) page (Apple-silicon Macs).
 2. Open the DMG and drag **RADHA** into **Applications**.
 3. First launch only: right-click **RADHA** → **Open** → **Open** (the app is not code-signed).
 4. Optional one-click helpers in the repository: **`Open RADHA.command`** and **`Close RADHA.command`**.
