@@ -25,14 +25,11 @@ npm start
 
 Click **Load demo reports (2 years)** on the Ingest screen to try every view without a real PDF.
 
-### Local parsing engines (optional)
+### Local parsing engines (optional, one click)
 
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r python/requirements.txt   # or install only the engines you want
-```
+Open **Ingest reports** and click **Install essentials** (pdfplumber, PyMuPDF, Apple Vision OCR — ≈ 0.2 GB) or **Install all local engines** (adds EasyOCR, Docling, Marker — ≈ 2.2 GB in total). RADHA downloads [uv](https://github.com/astral-sh/uv) if needed, creates a private Python 3.12 in `~/Library/Application Support/RADHA/engines`, installs the packages and downloads the models. Each engine card shows its download size and memory use, and **Tune** opens per-engine settings with a **Test on a report…** button. See the [user guide](docs/USER-GUIDE.md#311-local-engines--one-click-install-and-tuning).
 
-Then set **Settings → Python executable** to `.venv/bin/python`. Docling and Marker need Python 3.10 or newer and download their models the first time they run.
+Manual alternative: `pip install -r python/requirements.txt` into your own Python 3.10+, then set **Settings → Advanced: use my own Python**.
 
 ### Sarvam AI (optional)
 
@@ -42,7 +39,7 @@ Add your API subscription key in **Settings**. It is stored encrypted through th
 
 | Step | What happens | Code |
 |---|---|---|
-| 1. Ingest | Drag and drop PDFs (or choose files, or enter values manually). Engines: **Sarvam AI Document AI** (online) or local **Auto / pdfplumber / Docling / Marker (Surya) / EasyOCR / PyMuPDF**. | `src/main/sarvam.js`, `python/parse_report.py` |
+| 1. Ingest | Drag and drop PDFs (or choose files, or enter values manually). Engines: **Sarvam AI Document AI** (online) or local **Auto / pdfplumber / PyMuPDF / Apple Vision OCR / EasyOCR / Docling / Marker**, each installable and tunable from the app. | `src/main/sarvam.js`, `python/parse_report.py` |
 | 2. Extract | Text or Markdown is mapped to about 75 canonical biomarkers using an alias dictionary. Each gets its value, unit, reference range and flag. Patient name, age, sex, date and ID are read from the header. Unknown tests that have a range are kept as "Other". | `src/shared/extractor.js` |
 | 3. Normalize | Units are converted to one standard per marker (mmol/L→mg/dL, µmol/L→mg/dL, nmol/L→ng/mL, lakhs/cumm→10³/µL, and so on). The report's own reference range is converted the same way. If the report has no range, a sex-specific default is used. | `src/shared/biomarkers.js` |
 | 4. Verify (human in the loop) | An editable table shows each value as printed next to its normalized value, with the extracted text alongside. Nothing is analysed until you press **Confirm**. | `viewVerify` in `src/renderer/app.js` |

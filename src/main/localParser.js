@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // In the packaged app the script is unpacked from app.asar so Python can read it.
-const SCRIPT = path.resolve(__dirname, '..', '..', 'python', 'parse_report.py').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+export const PARSER_SCRIPT = path.resolve(__dirname, '..', '..', 'python', 'parse_report.py').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
 
-function runPython(pythonPath, args, timeoutMs) {
+function runPython(pythonPath, args, timeoutMs, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(pythonPath, [SCRIPT, ...args], {
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    const child = spawn(pythonPath, [PARSER_SCRIPT, ...args], {
+      env: { ...process.env, ...extraEnv, PYTHONIOENCODING: 'utf-8' },
     });
     let out = '';
     let err = '';
@@ -38,11 +38,12 @@ function runPython(pythonPath, args, timeoutMs) {
   });
 }
 
-export function parseLocal(filePath, engine, { pythonPath }) {
-  // Docling / Marker / EasyOCR download models on first use, so allow plenty of time.
-  return runPython(pythonPath, ['--engine', engine || 'auto', '--file', filePath], 15 * 60_000);
+export function parseLocal(filePath, engine, { pythonPath, env, options }) {
+  // Docling / Marker / EasyOCR may download models on first use, so allow plenty of time.
+  const args = ['--engine', engine || 'auto', '--file', filePath, '--options', JSON.stringify(options || {})];
+  return runPython(pythonPath, args, 20 * 60_000, env);
 }
 
-export function checkPythonEngines({ pythonPath }) {
-  return runPython(pythonPath, ['--check'], 60_000);
+export function checkPythonEngines({ pythonPath, env }) {
+  return runPython(pythonPath, ['--check'], 60_000, env);
 }

@@ -7,6 +7,16 @@ contextBridge.exposeInMainWorld('radha', {
   getSettings: () => invoke('settings:get'),
   setSettings: (patch) => invoke('settings:set', patch),
   checkPython: () => invoke('python:check'),
+  enginesInfo: (installed) => invoke('engines:info', installed),
+  installEngines: (ids) => invoke('engines:install', ids),
+  cancelEngineInstall: () => invoke('engines:cancel'),
+  removeEngine: (id) => invoke('engines:remove', id),
+  removeAllEngines: () => invoke('engines:removeAll'),
+  onEngineProgress: (cb) => {
+    const fn = (_e, p) => cb(p);
+    ipcRenderer.on('engines:progress', fn);
+    return () => ipcRenderer.removeListener('engines:progress', fn);
+  },
 
   pathForFile: (file) => webUtils.getPathForFile(file),
   openPdfDialog: () => invoke('dialog:openPdf'),

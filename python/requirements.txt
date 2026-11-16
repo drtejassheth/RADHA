@@ -1,16 +1,23 @@
-# RADHA local parsing engines. Install what you need; each is optional.
-# Docling and Marker need Python 3.10+ and download models on first use.
+# RADHA local parsing engines.
+#
+# Easiest: use the Install buttons on RADHA's Ingest screen. RADHA then creates its own
+# Python 3.12 environment (in ~/Library/Application Support/RADHA/engines) and downloads the
+# models, so nothing below is needed by hand.
+#
+# Manual install (advanced; then set Settings → "Use my own Python"): Python 3.10+ for Docling/Marker.
 
-# Fast text-layer extraction (digital PDFs) — recommended minimum
+# Text-layer readers for digital PDFs — recommended minimum
 pdfplumber>=0.11
 pymupdf>=1.24
+
+# Apple Vision / Live Text OCR (macOS only) — fast, light, accurate
+ocrmac>=1.0; sys_platform == "darwin"
+
+# EasyOCR — scanned / photographed reports, several Indian scripts
+easyocr>=1.7
 
 # IBM Docling — layout-aware tables to Markdown
 docling>=2.0
 
-# Marker (uses Surya OCR + layout models)
-marker-pdf>=1.0
-
-# EasyOCR — scanned / photographed reports (uses pypdfium2 from pdfplumber to render pages)
-easyocr>=1.7
-numpy
+# Marker (Surya / Indra models)
+marker-pdf>=2.0

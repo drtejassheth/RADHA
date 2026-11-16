@@ -26,7 +26,7 @@
 4. Optional one-click helpers in the repository: **`Open RADHA.command`** and **`Close RADHA.command`**.
 
 **Optional extras**
-- **Offline PDF reading:** `pip install -r python/requirements.txt`, then set the Python path in **Settings**.
+- **Offline PDF reading:** on the **Ingest reports** screen click **Install essentials** (≈ 0.2 GB) or **Install all local engines** (≈ 2.2 GB). RADHA sets up its own private Python and downloads the models — nothing to configure. See [Local engines](#311-local-engines--one-click-install-and-tuning).
 - **Online services:** add a Sarvam AI key (parsing and translation) and any AI provider keys in **Settings**. Free options need no key.
 
 ---
@@ -52,13 +52,57 @@ Drop PDFs onto the box, or browse. Choose how they are read:
 | Engine | Where it runs | Best for |
 |---|---|---|
 | **Sarvam AI** | Online (needs key) | Complex layouts, Indian lab formats |
-| **Auto** | Offline | Picks the best installed engine; falls back to OCR for scanned PDFs |
-| **pdfplumber / PyMuPDF** | Offline | Digital (text) PDFs — fast and exact |
+| **Auto** (recommended) | Offline | Reads the PDF's text layer; only pages without text (scanned) go to OCR — digital, scanned and mixed reports |
+| **pdfplumber / PyMuPDF** | Offline | Digital (text) PDFs — instant and exact |
+| **Apple Vision OCR** | Offline (Mac) | Scanned reports — fast, accurate, very light |
+| **EasyOCR** | Offline | Scanned or photographed reports; reads Hindi, Marathi, Bengali, Tamil, Telugu, Kannada |
 | **Docling (IBM)** | Offline | Layout-aware tables |
-| **Marker (Surya)** | Offline | Difficult layouts (slower) |
-| **EasyOCR** | Offline | Scanned or photographed reports |
+| **Marker (Surya)** | Offline | Difficult layouts |
 
 ![Ingest screen](images/01-ingest.png)
+
+### 3.1.1 Local engines — one-click install and tuning
+
+Every local engine can be installed from the **Parsing engine** panel. Each card shows the download size and how much memory it needs while reading a report. **Install essentials** gets the light engines (pdfplumber, PyMuPDF, Apple Vision OCR); **Install all local engines** adds EasyOCR, Docling and Marker. Progress is shown live and you can keep using the app or cancel.
+
+![Install local engines](images/17-engines-install.png)
+
+Measured on an Apple-silicon Mac with 8 GB RAM, reading a real 9-page lab report (51 tests) as the original digital PDF and as a scanned (image-only) copy:
+
+| Engine | Disk (packages + models) | Peak memory | Digital PDF | Scanned copy | Tests found in the scan |
+|---|---|---|---|---|---|
+| **Auto** (text layer + Apple Vision) | — | 0.1 GB / 0.9 GB | 0.5 s | 12 s | 50 of 51 |
+| pdfplumber | ≈ 35 MB | 0.1 GB | 0.5 s | no text | — |
+| PyMuPDF | ≈ 110 MB | 0.3 GB | 0.5 s | no text | — |
+| Apple Vision OCR | ≈ 60 MB | 0.9 GB | 11 s (OCRs every page) | 12 s | 50 of 51 |
+| EasyOCR | ≈ 1.0 GB (incl. PyTorch) | 1.4 GB | 83 s (OCRs every page) | 91 s | 47 of 51 |
+| Docling | ≈ 1.6 GB (incl. PyTorch) | 1.7 GB | 24 s | 44 s | 50 of 51 |
+| Marker (fast mode) | ≈ 1.0 GB (incl. PyTorch) | 1.7 GB | 9 s | 22 s | 51 of 51 |
+
+Docling and Marker figures include RADHA's gap filling (on by default). For digital PDFs the text readers are exact, instant and use the least memory, which is why **Auto** is recommended: it only uses OCR for pages that have no text.
+
+PyTorch is shared, so installing everything takes about 2.2 GB, not the sum. On 8 GB Macs, **low-memory mode** is switched on automatically.
+
+**Tune** on any installed engine opens its settings, with a **Test on a report…** button that shows how many tests were recognised and the text the engine read:
+
+| Setting | Engines | What it does |
+|---|---|---|
+| Pages to read | all | Skip cover letters or graphs (e.g. `1-3,5`) |
+| Processor | EasyOCR, Docling, Marker | Automatic, Apple GPU (Metal) or CPU only |
+| Low-memory mode, CPU threads | EasyOCR, Docling, Marker | Smaller batches for 8 GB machines |
+| Text-layer reader, OCR for scanned pages, scanned-page threshold | Auto | Which readers Auto uses, and when a page counts as scanned |
+| Line tolerance, column gap | pdfplumber, PyMuPDF | Keep a test name and its value on one line; split columns |
+| Recognizer (Vision + Live Text), level, languages, DPI, language correction | Apple Vision | Live Text catches lone digits such as a "0" result; correction off keeps HbA1c, SGPT, TSH exact |
+| Languages, DPI, image enhancement, rotation, detection thresholds, magnification | EasyOCR | Faint, small, sideways or photographed reports |
+| OCR mode and engine, table mode, cell matching, image scale | Docling | Table accuracy versus speed |
+| Mode (fast / text only / balanced / accurate), force OCR | Marker | Speed versus the large Surya vision model |
+| Fill gaps with RADHA's line reader | Docling, Marker | Recovers tests and patient details they miss |
+
+Every OCR result is also cleaned automatically: `O` read for zero (`O to 40`), `HL`/`pL` for µL, `mg/dI`, full-width `＜`, accented letters (`Ürea`) and dates such as `Oct 14,2026`.
+
+| Installing | Tune and test |
+|---|---|
+| ![Installing](images/18-engines-installing.png) | ![Tune](images/19-engine-tune.png) |
 
 ### 3.2 Verify values (human in the loop)
 
@@ -246,7 +290,9 @@ Sample files: [English](sample/RADHA-sample-summary-english.pdf) · [Gujarati](s
 
 - **AI providers:** choose which one writes the narrative. You can save or remove keys, **Load models** to list what a provider offers, and **Test** the connection.
 - **Translation:** choose the default translator and enter keys, URLs or an email where a service needs them, with a **Test** button for each.
-- **Local parsing:** set the Python executable and check which engines are installed.
+- **Local parsing engines:** see what is installed, memory and disk use per engine, remove one engine or all of them, or point RADHA at your own Python (advanced).
+
+![Local engines in Settings](images/20-settings-engines.png)
 
 | AI providers | Translation |
 |---|---|
@@ -273,7 +319,9 @@ Sample files: [English](sample/RADHA-sample-summary-english.pdf) · [Gujarati](s
 | "RADHA can't be opened" on first launch | Right-click RADHA → **Open** → **Open** |
 | A value or unit was read wrongly | Correct it on the **Verify** screen; open a saved report with **Edit** from the **Patients** tab |
 | A report shows the date of birth as its date | **Patients** → that report → **Fix date** |
-| "Local engines unavailable" | Install engines with `pip install -r python/requirements.txt` and set the Python path in **Settings** |
+| "Local engines unavailable" or "Not installed" | Click **Install** on the engine card (Ingest screen) or **Install essentials** |
+| A scanned report gives few tests | Use **Auto** or **Apple Vision OCR**; under **Tune** raise the DPI to 400, or turn on **Enhance image** for faint/photographed pages |
+| The Mac slows down while reading | **Tune** → turn on **Low-memory mode**, or use Apple Vision OCR instead of Marker/Docling |
 | Translation is slow or fails | The free service may be busy — wait a minute or pick another service next to **Language** |
 | A calculator doesn't run | Look in **Needs your input** or **Not available** to see what is missing (often height/weight or blood pressure — add them to the patient profile) |
 | Duplicate patients | **Patients** → open one → **Merge into this patient** |

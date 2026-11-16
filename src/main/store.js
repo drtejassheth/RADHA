@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS = {
   translationProvider: 'google_free',
   myMemoryEmail: '',
   libreUrl: '',
+  engineOptions: {},   // per local engine tuning: { common: {...}, easyocr: {...}, ... }
 };
 
 export class Store {
@@ -68,7 +69,7 @@ export class Store {
     const { apiKey, ...rest } = patch || {};
     for (const k of Object.keys(rest)) {
       if (!(k in DEFAULT_SETTINGS)) continue;
-      this.data.settings[k] = k === 'aiModels' ? { ...this.data.settings.aiModels, ...rest[k] } : rest[k];
+      this.data.settings[k] = k === 'aiModels' || k === 'engineOptions' ? { ...this.data.settings[k], ...rest[k] } : rest[k];
     }
     if (apiKey !== undefined) this.setApiKey(apiKey);
     await this.save();

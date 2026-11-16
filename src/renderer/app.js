@@ -44,13 +44,72 @@ const VIEW_TITLES = {
 
 const ENGINES = [
   { id: 'sarvam', title: 'Sarvam AI (online)', desc: 'Document AI parse via api.sarvam.ai. Best for complex layouts and Indic text. Sends the PDF to Sarvam.', online: true },
-  { id: 'auto', title: 'Local — Auto', desc: 'pdfplumber text layer first, falls back to OCR (Docling / Marker / EasyOCR) for scanned PDFs.' },
-  { id: 'pdfplumber', title: 'Local — pdfplumber', desc: 'Fast and exact for digital (text) PDFs.' },
-  { id: 'docling', title: 'Local — Docling (IBM)', desc: 'Layout-aware table extraction to Markdown.' },
-  { id: 'marker', title: 'Local — Marker (Surya)', desc: 'Surya OCR + layout models. Slow on CPU, very robust.' },
-  { id: 'easyocr', title: 'Local — EasyOCR', desc: 'OCR for scanned or photographed reports.' },
-  { id: 'pymupdf', title: 'Local — PyMuPDF', desc: 'Lightweight text-layer fallback.' },
+  { id: 'auto', title: 'Local — Auto (recommended)', desc: 'Reads the PDF\'s text layer; only pages without text (scanned) are sent to OCR. Handles digital, scanned and mixed reports.' },
+  { id: 'pdfplumber', title: 'Local — pdfplumber', desc: 'Exact text-layer reading for digital PDFs. Fastest and tiny.' },
+  { id: 'pymupdf', title: 'Local — PyMuPDF', desc: 'Very fast text-layer reader; a good fallback for unusual PDFs.' },
+  { id: 'applevision', title: 'Local — Apple Vision OCR', desc: 'The OCR built into macOS (same as Live Text). Fast, accurate and very light — best OCR choice on a Mac.', mac: true },
+  { id: 'easyocr', title: 'Local — EasyOCR', desc: 'Neural OCR for scanned or photographed reports; reads Hindi, Marathi, Bengali, Tamil, Telugu, Kannada and more.' },
+  { id: 'docling', title: 'Local — Docling (IBM)', desc: 'Layout-aware table recognition to Markdown; OCRs scanned pages.' },
+  { id: 'marker', title: 'Local — Marker (Surya)', desc: 'Surya OCR + layout models. Most robust on messy layouts; heaviest and slowest.' },
 ];
+const LOCAL_IDS = ['pdfplumber', 'pymupdf', 'applevision', 'easyocr', 'docling', 'marker'];
+const ESSENTIAL_IDS = ['pdfplumber', 'pymupdf', 'applevision'];
+
+// Tuning options for each local engine (stored in settings.engineOptions). Defaults are tuned for lab reports.
+const DEVICE_OPTS = [['auto', 'Automatic (Apple GPU when it helps)'], ['mps', 'Apple GPU (Metal)'], ['cpu', 'CPU only']];
+const TUNING = {
+  common: [
+    { k: 'pages', label: 'Pages to read', type: 'text', def: '', placeholder: 'all — or e.g. 1-3,5', help: 'Skip cover letters, graphs or doctor notes to save time.' },
+    { k: 'device', label: 'Processor for AI models (EasyOCR, Docling, Marker)', type: 'select', def: 'auto', options: DEVICE_OPTS },
+    { k: 'threads', label: 'CPU threads', type: 'number', def: '', min: 1, max: 32, placeholder: 'automatic' },
+    { k: 'lowMemory', label: 'Low-memory mode — smaller batches for EasyOCR, Docling and Marker; slower but safe on 8 GB Macs', type: 'checkbox', def: null },
+  ],
+  auto: [
+    { k: 'textEngine', label: 'Text-layer reader', type: 'select', def: 'pdfplumber', options: [['pdfplumber', 'pdfplumber (most exact)'], ['pymupdf', 'PyMuPDF (fastest)']] },
+    { k: 'ocrEngine', label: 'OCR for scanned pages', type: 'select', def: 'best', options: [['best', 'Best installed (Apple Vision → Docling → EasyOCR → Marker)'], ['applevision', 'Apple Vision OCR'], ['easyocr', 'EasyOCR'], ['docling', 'Docling'], ['marker', 'Marker']] },
+    { k: 'minChars', label: 'Treat a page as scanned when it has fewer than … characters', type: 'number', def: 60, min: 0, max: 2000 },
+  ],
+  pdfplumber: [
+    { k: 'lineTolerance', label: 'Line tolerance (points) — raise if a test name and its value land on different lines', type: 'number', def: 3, min: 1, max: 15, step: 0.5 },
+    { k: 'columnGap', label: 'Column gap (× text height) — lower to split columns more eagerly', type: 'number', def: 1.2, min: 0.3, max: 5, step: 0.1 },
+  ],
+  applevision: [
+    { k: 'languages', label: 'Languages (codes, comma separated)', type: 'langs', def: ['en'], help: 'en, hi (Hindi), mr (Marathi), fr, de, es, pt, it, zh, ja, ko, ru, ar, tr … — English is always read.' },
+    { k: 'framework', label: 'Recognizer', type: 'select', def: 'both', options: [['both', 'Vision + Live Text (recommended — catches lone digits like a "0" result)'], ['vision', 'Vision only'], ['livetext', 'Live Text only']] },
+    { k: 'level', label: 'Recognition level', type: 'select', def: 'accurate', options: [['accurate', 'Accurate (recommended)'], ['fast', 'Fast (Vision only)']] },
+    { k: 'dpi', label: 'Render resolution (DPI)', type: 'number', def: 300, min: 100, max: 600, step: 50 },
+    { k: 'enhance', label: 'Enhance image (greyscale, auto-contrast, sharpen) — only for faint, coloured or photographed reports', type: 'checkbox', def: false },
+    { k: 'languageCorrection', label: 'Language correction — off keeps abbreviations like HbA1c, SGPT, TSH exactly as printed', type: 'checkbox', def: false },
+    { k: 'minConfidence', label: 'Ignore text read with confidence below (0–1)', type: 'number', def: 0, min: 0, max: 1, step: 0.05 },
+  ],
+  easyocr: [
+    { k: 'languages', label: 'Languages (codes, comma separated)', type: 'langs', def: ['en'], help: 'English plus one script: hi, mr, ne (Devanagari) · bn, as · ta · te · kn · ur, ar … Each new language downloads a small model on first use.' },
+    { k: 'dpi', label: 'Render resolution (DPI)', type: 'number', def: 300, min: 100, max: 600, step: 50 },
+    { k: 'enhance', label: 'Enhance image (greyscale, auto-contrast, sharpen)', type: 'checkbox', def: true },
+    { k: 'rotate', label: 'Detect rotated text (photographed / sideways pages) — slower', type: 'checkbox', def: false },
+    { k: 'minConfidence', label: 'Ignore text read with confidence below (0–1)', type: 'number', def: 0.2, min: 0, max: 1, step: 0.05 },
+    { k: 'textThreshold', label: 'Text detection threshold — lower finds fainter text', type: 'number', def: 0.7, min: 0.3, max: 0.95, step: 0.05 },
+    { k: 'lowText', label: 'Low-text bound — lower keeps thin characters', type: 'number', def: 0.4, min: 0.1, max: 0.8, step: 0.05 },
+    { k: 'magRatio', label: 'Magnification — raise (1.5–2) for small print', type: 'number', def: 1, min: 0.5, max: 3, step: 0.25 },
+  ],
+  docling: [
+    { k: 'ocr', label: 'OCR', type: 'select', def: 'auto', options: [['auto', 'Only where the PDF has no text (recommended)'], ['force', 'Force full-page OCR (ignore the text layer)'], ['off', 'Off — digital PDFs only (fastest)']] },
+    { k: 'ocrEngine', label: 'OCR engine inside Docling', type: 'select', def: 'auto', options: [['auto', 'Automatic (Apple Vision on Mac)'], ['ocrmac', 'Apple Vision'], ['easyocr', 'EasyOCR']] },
+    { k: 'languages', label: 'OCR languages', type: 'langs', def: ['en'] },
+    { k: 'tableMode', label: 'Table recognition', type: 'select', def: 'accurate', options: [['accurate', 'Accurate (recommended for lab tables)'], ['fast', 'Fast']] },
+    { k: 'cellMatching', label: 'Match table cells to PDF text — turn off if values from neighbouring columns get merged', type: 'checkbox', def: true },
+    { k: 'imagesScale', label: 'Page image scale for OCR (1 = 72 DPI; 2–3 for small print)', type: 'number', def: 2, min: 1, max: 4, step: 0.5 },
+    { k: 'fillGaps', label: 'Fill gaps with RADHA\'s line reader — recovers tests and patient details Docling misses (recommended)', type: 'checkbox', def: true },
+  ],
+  marker: [
+    { k: 'mode', label: 'Mode', type: 'select', def: 'fast', options: [['fast', 'Fast — compact layout + OCR models, CPU friendly (recommended)'], ['no_ocr', 'Text layer only — digital PDFs, lightest'], ['balanced', 'Balanced — adds the Surya vision model for tables/scans (large download, needs a strong GPU)'], ['accurate', 'Accurate — Surya vision model on every page (very slow without a GPU)']] },
+    { k: 'fillGaps', label: 'Fill gaps with RADHA\'s line reader (recommended)', type: 'checkbox', def: true },
+    { k: 'forceOcr', label: 'Force OCR on every page (ignore the text layer)', type: 'checkbox', def: false },
+    { k: 'stripExistingOcr', label: 'Remove a bad existing OCR layer and re-OCR', type: 'checkbox', def: false },
+  ],
+};
+TUNING.pymupdf = TUNING.pdfplumber;
+
 
 // ------------------------------------------------------------------ helpers
 function h(tag, attrs = {}, ...children) {
@@ -163,17 +222,7 @@ function render() {
 
 // ------------------------------------------------------------------ ingest
 function viewIngest() {
-  const engineCards = ENGINES.map((e) => {
-    const avail = e.online ? state.settings.hasApiKey : e.id === 'auto' ? anyLocalEngine() : state.python?.engines?.[e.id];
-    const statusText = e.online
-      ? (state.settings.hasApiKey ? 'API key configured' : 'Needs API key (Settings)')
-      : state.python == null ? 'Checking Python…' : state.python.error ? 'Python not found' : avail ? 'Installed' : 'Not installed';
-    return h('label', { class: 'engine' + (avail ? '' : ' unavailable') },
-      h('input', { type: 'radio', name: 'engine', value: e.id, checked: state.engine === e.id, onchange: () => { state.engine = e.id; } }),
-      h('div', {}, h('div', { class: 't' }, e.title), h('div', { class: 'd' }, e.desc),
-        h('div', { class: 's', style: { color: avail ? 'var(--normal)' : 'var(--warn)' } }, statusText)));
-  });
-
+  const engineCards = ENGINES.filter((e) => !e.mac || state.engineInfo?.platform === 'darwin' || state.python?.platform === 'darwin').map(engineCard);
   const dz = h('div', { class: 'dropzone', tabindex: 0, role: 'button', 'aria-label': 'Choose or drop PDF reports',
     onclick: async () => addFiles(await call(api.openPdfDialog())),
     onkeydown: async (e) => { if (e.key === 'Enter' || e.key === ' ') addFiles(await call(api.openPdfDialog())); },
@@ -200,17 +249,16 @@ function viewIngest() {
     ))) : null;
 
   return h('div', {},
-    h('div', { class: 'grid cols-2' },
-      h('div', {}, dz,
-        h('div', { class: 'row mt' },
-          h('button', { class: 'btn', onclick: startManual }, '✎ Manual entry'),
-          h('button', { class: 'btn', onclick: loadDemo }, '▶ Load demo reports (2 years)'),
-          h('span', { class: 'spacer' }),
-          h('button', { class: 'link small', onclick: refreshPython }, 'Re-check local engines'))),
-      h('div', { class: 'card' }, h('h2', {}, 'Parsing engine'), h('div', { class: 'engine-grid', style: { gridTemplateColumns: '1fr 1fr' } }, engineCards),
-        state.python?.error ? h('p', { class: 'small', style: { color: 'var(--warn)' } }, `Local engines unavailable: ${state.python.error}`) :
-          h('p', { class: 'small muted' }, state.python ? `Python ${state.python.python} — install engines with: pip install -r python/requirements.txt` : ''))),
+    dz,
+    h('div', { class: 'row mt' },
+      h('button', { class: 'btn', onclick: startManual }, '✎ Manual entry'),
+      h('button', { class: 'btn', onclick: loadDemo }, '▶ Load demo reports (2 years)'),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'link small', onclick: refreshPython }, 'Re-check local engines')),
     queue,
+    h('div', { class: 'card mt' }, h('h2', {}, 'Parsing engine'), installBar(),
+      h('div', { class: 'engine-grid wide' }, engineCards),
+      h('p', { class: 'small muted' }, pythonLine())),
     h('div', { class: 'disclaimer mt' }, h('b', {}, 'Privacy: '),
       'Local engines keep the report on this computer. The Sarvam AI engine sends the PDF to Sarvam AI. Translation and the optional AI narrative go to the services you choose in Settings (Ollama stays on this computer); they never include the patient name or ID.'),
   );
@@ -221,9 +269,217 @@ function anyLocalEngine() {
   return Boolean(e && Object.values(e).some(Boolean));
 }
 
+const fmtMB = (mb) => (mb >= 1000 ? `${(mb / 1000).toFixed(mb >= 10000 ? 0 : 1)} GB` : `${Math.max(1, Math.round(mb))} MB`);
+const engineMeta = (id) => state.engineInfo?.list?.find((x) => x.id === id);
+const isInstalled = (id) => Boolean(state.python?.engines?.[id]);
+const installing = (id) => Boolean(state.install && state.install.ids.includes(id));
+
+function engineCard(e) {
+  const avail = e.online ? state.settings.hasApiKey : e.id === 'auto' ? anyLocalEngine() : isInstalled(e.id);
+  const meta = engineMeta(e.id);
+  const totalMB = state.engineInfo?.totalMemMB || 0;
+  const heavy = meta && totalMB && meta.ramMB > totalMB * 0.45;
+  let status;
+  let color = avail ? 'var(--normal)' : 'var(--warn)';
+  if (e.online) status = state.settings.hasApiKey ? 'API key configured' : 'Needs API key (Settings)';
+  else if (state.python == null) status = 'Checking…';
+  else if (installing(e.id)) { status = 'Installing…'; color = 'var(--accent)'; }
+  else if (e.id === 'auto') status = !avail ? 'Install any local engine below' : ocrForAuto() ? `Ready — text layer + ${ocrForAuto()}` : 'Ready for digital PDFs — install an OCR engine for scanned ones';
+  else if (avail) status = `Installed · uses ≈ ${fmtMB(meta?.ramMB || 0)} memory while reading`;
+  else status = meta ? `Not installed · ≈ ${fmtMB(meta.diskMB)} download · needs ≈ ${fmtMB(meta.ramMB)} memory` : 'Not installed';
+
+  const stop = (fn) => (ev) => { ev.preventDefault(); ev.stopPropagation(); fn(); };
+  const actions = [];
+  if (!e.online && e.id !== 'auto' && !avail && meta && !state.install) actions.push(h('button', { class: 'btn small primary', onclick: stop(() => installEngines([e.id])) }, '⬇ Install'));
+  if (!e.online && (avail || e.id === 'auto') && TUNING[e.id]) actions.push(h('button', { class: 'btn small', onclick: stop(() => openTuneModal(e.id)) }, '⚙ Tune'));
+
+  return h('label', { class: 'engine' + (avail ? '' : ' unavailable') },
+    h('input', { type: 'radio', name: 'engine', value: e.id, checked: state.engine === e.id, onchange: () => { state.engine = e.id; api.setSettings({ defaultEngine: e.id }); } }),
+    h('div', { style: { flex: 1 } }, h('div', { class: 't' }, e.title), h('div', { class: 'd' }, e.desc),
+      h('div', { class: 's', style: { color } }, status),
+      heavy && !avail ? h('div', { class: 's', style: { color: 'var(--warn)' } }, `Heavy for this computer (${fmtMB(totalMB)} RAM) — low-memory mode will be used.`) : null,
+      actions.length ? h('div', { class: 'row engine-actions' }, actions) : null));
+}
+
+function ocrForAuto() {
+  const e = state.python?.engines || {};
+  const o = state.settings.engineOptions?.auto?.ocrEngine;
+  const name = (id) => ENGINES.find((x) => x.id === id)?.title.replace('Local — ', '').replace(/ OCR$/, '');
+  if (o && o !== 'best') return e[o] ? `${name(o)} OCR` : null;
+  const id = ['applevision', 'docling', 'easyocr', 'marker'].find((k) => e[k]);
+  return id ? `${name(id)} OCR for scanned pages` : null;
+}
+
+function pythonLine() {
+  const p = state.python;
+  if (!p) return '';
+  if (p.error) return p.managed === false ? `Local engines unavailable: ${p.error}` : 'No local engines yet — install them with the buttons above (nothing else to set up).';
+  const used = state.engineInfo?.usage?.totalMB;
+  return p.managed ? `RADHA engine environment · Python ${p.python}${used ? ` · ${fmtMB(used)} on disk` : ''} · remove or change in Settings`
+    : `Python ${p.python} (${p.executable}) — one-click installs go into RADHA's own Python 3.12 environment.`;
+}
+
+function installBar() {
+  const ins = state.install;
+  if (ins) {
+    return h('div', { class: 'install-panel' },
+      h('div', { class: 'row' }, h('span', { class: 'spinner' }),
+        h('b', {}, `Installing ${ins.ids.map((id) => engineMeta(id)?.label || id).join(', ')}`),
+        h('span', { class: 'spacer' }), h('span', { class: 'small muted' }, `Step ${Math.min(ins.step || 1, ins.total || 1)} of ${ins.total || '…'}`),
+        h('button', { class: 'btn small', onclick: () => api.cancelEngineInstall() }, 'Cancel')),
+      h('div', { class: 'progress' }, h('div', { class: 'bar', style: { width: `${Math.round(100 * Math.min(ins.step || 0, ins.total || 1) / (ins.total || 1))}%` } })),
+      h('div', { class: 'small', id: 'install-msg' }, ins.message || 'Starting…'),
+      h('div', { class: 'small muted mono', id: 'install-line' }, ins.line || ''),
+      h('div', { class: 'small muted' }, 'You can keep using RADHA while this runs. Large downloads (PyTorch, models) can take several minutes.'));
+  }
+  if (state.python == null) return null;
+  const missing = LOCAL_IDS.filter((id) => engineMeta(id) && !isInstalled(id));
+  if (!missing.length) return null;
+  const est = state.engineInfo?.estimates || {};
+  const essentials = ESSENTIAL_IDS.filter((id) => missing.includes(id) && engineMeta(id));
+  const peak = Math.max(...missing.map((id) => engineMeta(id)?.ramMB || 0));
+  return h('div', { class: 'install-panel' },
+    h('div', { class: 'small' }, h('b', {}, 'Local engines run on this computer — reports never leave it. '),
+      'Install them with one click; RADHA sets up its own private Python, nothing else to configure.'),
+    h('div', { class: 'row mt' },
+      essentials.length ? h('button', { class: 'btn small primary', onclick: () => installEngines(essentials) },
+        `⬇ Install essentials (${essentials.map((id) => engineMeta(id).label).join(', ')}) · ≈ ${fmtMB(est.essentials || 0)}`) : null,
+      h('button', { class: essentials.length ? 'btn small' : 'btn small primary', onclick: () => installEngines(missing) },
+        `⬇ Install all ${missing.length === LOCAL_IDS.filter(engineMeta).length ? 'local engines' : `${missing.length} missing engines`} · ≈ ${fmtMB(est.all || 0)} download`)),
+    h('div', { class: 'small muted mt' }, `Memory while reading a report: ${(state.engineInfo?.list || []).map((m) => `${m.label} ≈ ${fmtMB(m.ramMB)}`).join(', ')}. `,
+      state.engineInfo?.totalMemMB ? `This computer has ${fmtMB(state.engineInfo.totalMemMB)} RAM.` : '',
+      peak > (state.engineInfo?.totalMemMB || Infinity) * 0.45 ? ' Heavy engines run in low-memory mode automatically.' : ''));
+}
+
 async function refreshPython() {
   try { state.python = await call(api.checkPython()); } catch (err) { state.python = { error: err.message, engines: {} }; }
+  try {
+    const installed = state.python?.engines || {};
+    state.engineInfo = await call(api.enginesInfo(installed));
+    if (state.engineInfo.status?.busy && !state.install) state.install = { ids: state.engineInfo.status.ids, step: 1, total: 1 };
+  } catch { /* older main process */ }
   if (state.view === 'ingest' || state.view === 'settings') render();
+}
+
+async function installEngines(ids) {
+  if (state.install) return;
+  state.install = { ids, step: 0, total: ids.length + 2, message: 'Starting…', local: true };
+  render();
+  try {
+    await call(api.installEngines(ids));
+    toast(`Installed ${ids.map((id) => engineMeta(id)?.label || id).join(', ')}.`);
+  } catch (err) {
+    if (!/cancel/i.test(err.message)) toast(`Installation failed: ${err.message}`, true);
+    else toast('Installation cancelled.');
+  }
+  state.install = null;
+  try { state.settings = await call(api.getSettings()); } catch { /* keep */ }
+  await refreshPython();
+  render();
+}
+
+function onEngineProgress(p) {
+  if (p.phase === 'done' || p.phase === 'error') {
+    // installEngines() normally finishes the job; this covers installs started elsewhere (e.g. before a reload).
+    setTimeout(() => { if (state.install && !state.install.local) { state.install = null; refreshPython(); } }, 300);
+    return;
+  }
+  if (!state.install) state.install = { ids: p.ids };
+  const phaseChanged = p.step !== state.install.step || (p.message && p.message !== state.install.message);
+  Object.assign(state.install, { ids: p.ids, step: p.step, total: p.total });
+  if (p.message) state.install.message = p.message;
+  if (p.line) state.install.line = p.line.slice(0, 220);
+  if (state.view !== 'ingest') return;
+  const line = document.getElementById('install-line');
+  if (!phaseChanged && line) { line.textContent = state.install.line; return; }
+  const view = document.getElementById('view');
+  const top = view?.scrollTop;
+  render();
+  if (view) view.scrollTop = top;
+}
+
+// ------------------------------------------------------------------ engine tuning
+function tuneValues(id) {
+  const saved = state.settings.engineOptions?.[id] || {};
+  const lowMemDefault = (state.engineInfo?.totalMemMB || 16000) <= 9000;
+  const out = {};
+  for (const f of TUNING[id] || []) out[f.k] = saved[f.k] ?? (f.k === 'lowMemory' ? lowMemDefault : f.def);
+  return out;
+}
+
+function tuneField(f, value) {
+  let input;
+  if (f.type === 'checkbox') input = h('input', { type: 'checkbox', checked: Boolean(value) });
+  else if (f.type === 'select') {
+    input = h('select', {}, f.options.map(([v, label]) => h('option', { value: v, selected: v === value }, label)));
+  } else {
+    input = h('input', { type: f.type === 'number' ? 'number' : 'text', value: f.type === 'langs' ? (value || []).join(', ') : value ?? '',
+      placeholder: f.placeholder || '', min: f.min, max: f.max, step: f.step || 'any', style: { width: f.type === 'number' ? '120px' : '100%' } });
+  }
+  const read = () => {
+    if (f.type === 'checkbox') return input.checked;
+    if (f.type === 'number') return input.value === '' ? (f.def === '' ? '' : f.def) : Math.min(f.max ?? Infinity, Math.max(f.min ?? -Infinity, Number(input.value)));
+    if (f.type === 'langs') { const l = input.value.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean); return l.length ? [...new Set(l)] : ['en']; }
+    return input.value;
+  };
+  const set = (v) => { if (f.type === 'checkbox') input.checked = Boolean(v); else input.value = f.type === 'langs' ? (v || []).join(', ') : v ?? ''; };
+  const row = f.type === 'checkbox'
+    ? h('label', { class: 'tune-row check' }, input, h('span', {}, f.label))
+    : h('label', { class: 'tune-row' }, h('span', {}, f.label), input);
+  if (f.help) row.append(h('div', { class: 'small muted' }, f.help));
+  return { f, row, read, set };
+}
+
+function openTuneModal(id) {
+  closeModal();
+  const eng = ENGINES.find((e) => e.id === id);
+  const own = (TUNING[id] || []).map((f) => tuneField(f, tuneValues(id)[f.k]));
+  const common = TUNING.common.map((f) => tuneField(f, tuneValues('common')[f.k]));
+  const result = h('div', {});
+  const values = (fields) => Object.fromEntries(fields.map((x) => [x.f.k, x.read()]));
+  const save = async (quiet) => {
+    state.settings = await call(api.setSettings({ engineOptions: { [id]: values(own), common: values(common) } }));
+    if (!quiet) toast(`${eng.title.replace('Local — ', '')} settings saved.`);
+  };
+  const reset = () => {
+    for (const x of own) x.set(x.f.def);
+    for (const x of common) x.set(x.f.k === 'lowMemory' ? (state.engineInfo?.totalMemMB || 16000) <= 9000 : x.f.def);
+  };
+  const test = async () => {
+    const files = await call(api.openPdfDialog());
+    if (!files?.length) return;
+    await save(true);
+    result.replaceChildren(h('div', { class: 'row' }, h('span', { class: 'spinner' }), `Reading ${files[0].split(/[\\/]/).pop()} with ${eng.title.replace('Local — ', '')}…`));
+    const t0 = performance.now();
+    try {
+      const parsed = await call(api.parsePdf(files[0], id));
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      const ex = extractReport(parsed.text || '');
+      result.replaceChildren(
+        h('div', { class: 'tune-result' },
+          h('div', {}, h('b', {}, `${ex.rows.length} tests recognised`), ` · ${parsed.pages ?? '?'} page(s) · ${secs} s · engine: ${parsed.engine}`),
+          ex.patient?.name ? h('div', { class: 'small muted' }, `Patient: ${ex.patient.name}${ex.patient.date ? ` · report date ${fmtDate(ex.patient.date)}` : ''}`) : null,
+          (parsed.warnings || []).map((w) => h('div', { class: 'small', style: { color: 'var(--warn)' } }, w)),
+          h('details', {}, h('summary', { class: 'small' }, 'Show the text the engine read'), h('pre', { class: 'raw-preview' }, (parsed.text || '').slice(0, 6000)))));
+    } catch (err) {
+      result.replaceChildren(h('div', { style: { color: 'var(--crit)' } }, err.message));
+    }
+  };
+  const box = h('div', { class: 'modal card' },
+    h('h2', {}, `Tune ${eng.title.replace('Local — ', '')}`),
+    h('p', { class: 'small muted' }, eng.desc),
+    own.length ? h('div', { class: 'tune-grid' }, own.map((x) => x.row)) : null,
+    h('h3', { style: { marginTop: '22px' } }, 'All local engines'),
+    h('div', { class: 'tune-grid' }, common.map((x) => x.row)),
+    h('div', { class: 'row mt' },
+      h('button', { class: 'btn small', onclick: reset }, 'Reset to recommended'),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn small', onclick: () => test().catch((e) => toast(e.message, true)) }, '🧪 Test on a report…'),
+      h('button', { class: 'btn small primary', onclick: async () => { await save(); closeModal(); render(); } }, 'Save')),
+    result);
+  const backdrop = h('div', { class: 'modal-backdrop', onclick: (ev) => { if (ev.target === backdrop) closeModal(); } },
+    h('div', { class: 'modal-wrap' }, h('button', { class: 'btn small modal-close', onclick: closeModal }, '✕ Close'), box));
+  document.body.append(backdrop);
 }
 
 let qid = 0;
@@ -1275,18 +1531,44 @@ function viewSettings() {
       s.hasApiKey ? h('button', { class: 'btn small danger', onclick: async () => { state.settings = await call(api.setSettings({ apiKey: '' })); toast('API key removed.'); render(); } }, 'Remove saved key') : null,
       h('div', { class: 'field mt' }, 'Chat model (world-language translation)', model),
       h('div', { class: 'field mt' }, 'Document parse language (BCP-47, e.g. en-IN, hi-IN)', parseLang)),
-    h('div', { class: 'card' }, h('h2', {}, 'Local parsing (Python)'),
-      h('div', { class: 'field' }, 'Python executable', py),
-      h('p', { class: 'small muted' }, 'Point this at the Python that has the engines installed (e.g. a virtualenv: /path/to/venv/bin/python).'),
-      state.python?.error ? h('p', { style: { color: 'var(--crit)' } }, state.python.error) :
-        h('table', {}, h('tbody', {},
-          h('tr', {}, h('td', {}, 'Python'), h('td', {}, state.python ? `${state.python.python} (${state.python.executable})` : 'checking…')),
-          ['pdfplumber', 'docling', 'marker', 'easyocr', 'pymupdf'].map((k) => h('tr', {}, h('td', {}, k), h('td', {}, eng[k] ? h('span', { class: 'pill normal' }, 'installed') : h('span', { class: 'pill unknown' }, 'not installed')))))),
-      h('div', { class: 'row mt' }, h('button', { class: 'btn', onclick: refreshPython }, 'Re-check'))),
+    localEnginesCard(py),
     aiProvidersCard(),
     translationCard(),
     h('div', { class: 'row', style: { gridColumn: '1 / -1' } }, h('span', { class: 'spacer' }), h('button', { class: 'btn primary', onclick: save }, 'Save settings')),
   );
+}
+
+function localEnginesCard(py) {
+  const eng = state.python?.engines || {};
+  const usage = state.engineInfo?.usage || {};
+  const list = state.engineInfo?.list || [];
+  const removeOne = async (id) => {
+    if (!confirm(`Remove ${engineMeta(id)?.label || id} and its downloaded models?`)) return;
+    try { await call(api.removeEngine(id)); toast('Removed.'); } catch (err) { toast(err.message, true); }
+    refreshPython();
+  };
+  const removeAll = async () => {
+    if (!confirm(`Remove all local engines installed by RADHA (${fmtMB(usage.totalMB || 0)})?\n\nYour reports and settings are not affected. You can reinstall any time from the Ingest screen.`)) return;
+    try { await call(api.removeAllEngines()); toast('All local engines removed.'); } catch (err) { toast(err.message, true); }
+    refreshPython();
+  };
+  return h('div', { class: 'card' }, h('h2', {}, 'Local parsing engines'),
+    state.python?.error && !state.python.managed ? h('p', { class: 'small muted' }, 'No local engines installed yet — use the Install buttons on the Ingest screen.') :
+      h('table', {}, h('tbody', {},
+        h('tr', {}, h('td', {}, 'Python'), h('td', { colspan: 3 }, state.python ? `${state.python.python}${state.python.managed ? ' (RADHA engine environment)' : ` (${state.python.executable})`}` : 'checking…')),
+        list.map((m) => h('tr', {},
+          h('td', {}, m.label),
+          h('td', {}, eng[m.id] ? h('span', { class: 'pill normal' }, 'installed') : h('span', { class: 'pill unknown' }, 'not installed')),
+          h('td', { class: 'small muted' }, `≈ ${fmtMB(m.ramMB)} RAM${usage.models?.[m.id] ? ` · models ${fmtMB(usage.models[m.id])}` : ''}`),
+          h('td', {}, eng[m.id] && state.python?.managed ? h('button', { class: 'link small', onclick: () => removeOne(m.id) }, 'Remove') : null))))),
+    usage.totalMB ? h('p', { class: 'small muted' }, `Disk used by RADHA engines: ${fmtMB(usage.totalMB)} (programs ${fmtMB(usage.packagesMB)}, models ${fmtMB(usage.modelsMB)}).`) : null,
+    h('div', { class: 'row mt' },
+      h('button', { class: 'btn small', onclick: refreshPython }, 'Re-check'),
+      h('button', { class: 'btn small', onclick: () => setView('ingest') }, 'Install / tune engines…'),
+      usage.totalMB ? h('button', { class: 'btn small danger', onclick: removeAll }, 'Remove all local engines') : null),
+    h('details', { class: 'mt' }, h('summary', { class: 'small' }, 'Advanced: use my own Python instead'),
+      h('div', { class: 'field mt' }, 'Python executable (leave empty to use RADHA\'s engine environment)', py),
+      h('p', { class: 'small muted' }, 'Only needed if you manage the engines yourself (pip install -r python/requirements.txt). Save settings to apply.')));
 }
 
 function aiProvidersCard() {
@@ -1660,6 +1942,7 @@ async function init() {
     state.trendKey = groupKey(latest);
   }
   render();
+  api.onEngineProgress?.(onEngineProgress);
   refreshPython();
   ensureLibrary().then(() => { if (['calculators', 'library'].includes(state.view)) render(); }).catch(() => {});
   if (state.report && state.lang !== 'en-IN') maybeTranslate();

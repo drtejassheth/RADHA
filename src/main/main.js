@@ -3,6 +3,7 @@
 // and exposes it to the renderer through a narrow IPC surface (see preload.cjs).
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'node:path';
+import os from 'node:os';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { parseLocal, checkPythonEngines } from './localParser.js';
@@ -10,12 +11,14 @@ import { sarvamParsePdf } from './sarvam.js';
 import { TRANSLATORS, translateTexts } from './translators.js';
 import { Store } from './store.js';
 import { PROVIDERS, aiChat, aiListModels } from './aiProviders.js';
+import { EngineInstaller, engineList, estimate, managedPython, hasManagedPython, managedEnv } from './engines.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
 
 let mainWindow;
 let store;
+let installer;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -40,9 +43,19 @@ function createWindow() {
   });
 }
 
-function settingsForPython() {
+// Where the one-click engines live (RADHA_ENGINES_HOME lets smoke tests reuse the real install).
+const engineHome = () => process.env.RADHA_ENGINES_HOME || app.getPath('userData');
+
+function settingsForPython(engine) {
   const s = store.getSettings();
-  return { pythonPath: s.pythonPath || (process.platform === 'win32' ? 'python' : 'python3') };
+  const userData = engineHome();
+  const managed = managedPython(userData);
+  const pythonPath = s.pythonPath || (hasManagedPython(userData) ? managed : (process.platform === 'win32' ? 'python' : 'python3'));
+  const all = s.engineOptions || {};
+  const options = { ...(all.common || {}), ...(all[engine] || {}), engines: all };
+  // Smaller batches by default on 8 GB machines (the user can change it under Tune).
+  if (options.lowMemory == null) options.lowMemory = os.totalmem() <= 9e9;
+  return { pythonPath, env: pythonPath === managed ? managedEnv(userData) : {}, options, managed: pythonPath === managed };
 }
 
 function wrap(fn) {
@@ -61,7 +74,28 @@ function registerIpc() {
   ipcMain.handle('settings:get', wrap(() => store.getSettings({ redactKey: true })));
   ipcMain.handle('settings:set', wrap((patch) => store.setSettings(patch)));
 
-  ipcMain.handle('python:check', wrap(() => checkPythonEngines(settingsForPython())));
+  ipcMain.handle('python:check', wrap(async () => ({ ...(await checkPythonEngines(settingsForPython())), managed: settingsForPython().managed })));
+
+  // One-click engine installer (packages + models into <userData>/engines).
+  ipcMain.handle('engines:info', wrap(async (installed = {}) => {
+    const list = engineList();
+    const local = list.map((e) => e.id);
+    const essentials = ['pdfplumber', 'pymupdf', 'applevision'].filter((id) => local.includes(id));
+    return {
+      list, platform: process.platform, totalMemMB: Math.round(os.totalmem() / 1e6),
+      status: installer.status(), usage: await installer.usage(),
+      estimates: { all: estimate(local, installed).diskMB, essentials: estimate(essentials, installed).diskMB },
+    };
+  }));
+  ipcMain.handle('engines:install', wrap(async (ids) => {
+    const res = await installer.install(ids, { options: store.getSettings().engineOptions || {} });
+    // Use RADHA's own engine environment from now on (a custom Python path would hide it).
+    if (store.getSettings().pythonPath) await store.setSettings({ pythonPath: '' });
+    return res;
+  }));
+  ipcMain.handle('engines:cancel', wrap(() => { installer.cancel(); return true; }));
+  ipcMain.handle('engines:remove', wrap((id) => installer.remove(id)));
+  ipcMain.handle('engines:removeAll', wrap(() => installer.removeAll()));
 
   ipcMain.handle('parse:pdf', wrap(async ({ filePath, engine }) => {
     const stat = await fs.stat(filePath);
@@ -72,7 +106,7 @@ function registerIpc() {
       const s = store.getSettings();
       return sarvamParsePdf(filePath, key, { language: s.sarvamParseLanguage || 'en-IN' });
     }
-    return parseLocal(filePath, engine, settingsForPython());
+    return parseLocal(filePath, engine, settingsForPython(engine || 'auto'));
   }));
 
   ipcMain.handle('dialog:openPdf', wrap(async () => {
@@ -203,6 +237,7 @@ app.whenReady().then(async () => {
   }
   store = new Store(app.getPath('userData'));
   await store.load();
+  installer = new EngineInstaller(engineHome(), { onProgress: (p) => mainWindow?.webContents.send('engines:progress', p) });
   registerIpc();
   createWindow();
   if (process.env.RADHA_SMOKE) {
