@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = {
   sarvamChatModel: 'sarvam-105b',
   outputLanguage: 'en-IN',
   aiProvider: 'pollinations',
+  calcAiProvider: 'pollinations', // calculator library: AI used for calculators RADHA cannot run itself
   aiModels: {},
   ollamaUrl: 'http://localhost:11434',
   customBaseUrl: '',

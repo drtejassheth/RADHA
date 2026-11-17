@@ -297,3 +297,5 @@ select.small { font-size: 12px; padding: 3px 6px; }
 .lc-band-table { margin-top: 6px; }
 .lc-ai { margin-top: 6px; }
 .lc-warn { margin-top: 8px; color: var(--warn); }
+.lc-airow { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.lc-airow select { max-width: 340px; }

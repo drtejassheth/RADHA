@@ -292,7 +292,7 @@ export function calcPanel(entry, ctx) {
     const out = h('div', { class: 'lc-result' });
     const showAi = () => {
       if (!st.ai) { put(out, ); return; }
-      if (st.ai.busy) { put(out, h('div', { class: 'small' }, h('span', { class: 'spinner' }), ' Calculating with ', ctx.ai.name, '…')); return; }
+      if (st.ai.busy) { put(out, h('div', { class: 'small' }, h('span', { class: 'spinner' }), ' Calculating with ', st.ai.provider, '…')); return; }
       if (st.ai.error) { put(out, h('div', { class: 'small', style: { color: 'var(--crit)' } }, st.ai.error)); return; }
       const m = st.ai.text.match(/^\s*result\s*:\s*(.+)$/im);
       put(out, 
@@ -307,9 +307,11 @@ export function calcPanel(entry, ctx) {
         return `- ${stripTags(inp.label)}: ${inp.type === 'choice' ? stripTags(inp.options[x.value]) : `${x.value}${x.unit ? ' ' + x.unit : ''}`}`;
       });
       if (!entered.some((l) => !l.endsWith('(not entered)'))) { st.ai = { error: 'Enter at least one value first.' }; showAi(); return; }
-      st.ai = { busy: true }; showAi();
+      const prov = ctx.ai.providers.find((p) => p.id === ctx.ai.current());
+      if (prov.needs) { st.ai = { error: `${prov.name} needs ${prov.needs} — add it in Settings → AI providers, or pick another provider.` }; showAi(); return; }
+      st.ai = { busy: true, provider: prov.name }; showAi();
       try {
-        const text = await ctx.ai.ask([
+        const text = await ctx.ai.ask(prov.id, [
           { role: 'system', content: 'You are a precise medical calculator. Compute the named calculator using ONLY the documentation and the input values given. ' +
             'Reply in plain text, no markdown. First line exactly: "Result: <value with unit or points> — <category/interpretation if the documentation gives one>". ' +
             'Then "Working:" with a short step-by-step calculation (points per item, or the formula with the numbers substituted). ' +
@@ -317,18 +319,29 @@ export function calcPanel(entry, ctx) {
             'Never invent coefficients or point values that are not in the documentation. Keep it under 180 words.' },
           { role: 'user', content: `Calculator: ${entry.name}\n\n${formulaText(v).slice(0, 9000)}\n\nInput values:\n${entered.join('\n')}` },
         ]);
-        st.ai = { text, provider: ctx.ai.name };
+        st.ai = { text, provider: prov.model ? `${prov.name} · ${prov.model}` : prov.name };
       } catch (err) { st.ai = { error: err.message }; }
       showAi();
     };
     showAi();
     const canCompute = Boolean(v.formula || v.equations?.length);
+    const aiRow = h('div', { class: 'lc-airow' });
+    const drawAiRow = () => {
+      if (!ctx.ai) { put(aiRow, h('span', { class: 'small muted' }, 'AI providers could not be loaded.')); return; }
+      const cur = ctx.ai.providers.find((p) => p.id === ctx.ai.current());
+      put(aiRow,
+        h('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap' } },
+          h('button', { class: 'btn primary small', onclick: run, disabled: Boolean(cur.needs) }, `Calculate with ${cur.name}`),
+          h('label', { class: 'row small', style: { gap: '6px' } }, 'AI provider',
+            h('select', { onchange: async (e) => { await ctx.ai.choose(e.target.value); st.ai = null; showAi(); drawAiRow(); } },
+              ctx.ai.providers.map((p) => h('option', { value: p.id, selected: p.id === cur.id }, `${p.label}${p.needs ? ` (needs ${p.needs})` : ''}`)))),
+          cur.needs ? h('button', { class: 'link small', onclick: ctx.ai.openSettings }, `Add ${cur.needs} in Settings →`) : null),
+        h('div', { class: 'small muted' }, cur.note, ' ', canCompute ? 'Only the calculator\'s formula and the values above are sent — no name or report.' : 'This entry has no formula text; the AI may not be able to compute it.'));
+    };
+    drawAiRow();
     return h('div', {},
       h('div', { class: 'form-grid lc-grid' }, fields),
-      h('div', { class: 'row mt' },
-        ctx.ai ? h('button', { class: 'btn primary small', onclick: run }, `Calculate with ${ctx.ai.name}`) : h('span', { class: 'small muted' }, 'Set up an AI provider in Settings to calculate this one.'),
-        h('span', { class: 'spacer' }),
-        h('span', { class: 'small muted' }, canCompute ? 'Only the calculator\'s formula and the values above are sent — no name or report.' : 'This entry has no formula text; the AI may not be able to compute it.')),
+      aiRow,
       out);
   }
 

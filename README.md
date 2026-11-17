@@ -79,7 +79,7 @@ The **Calculator library** screen searches every entry, and every entry can be f
 |---|---|---|
 | ✓ Verified RADHA calculator | 122 entries | RADHA's own tested implementation. Values come from the open report, can be edited, and the result updates as you type. |
 | Σ Auto-scored | 123 | Each answer shows its points; the total and risk category update as you click. Points come from the calculator's published points table (`scripts/calculator_scoring.py`). A calculator is auto-scored only when every answer matched its points unambiguously. |
-| ✎ AI-assisted | the rest | Editable inputs with units, then **Calculate with** your AI provider. Only the formula text and the entered values are sent (no name or report), and the result is labelled as not verified. |
+| ✎ AI-assisted | the rest | Editable inputs with units, then **Calculate with** the AI provider chosen in the box: Pollinations (default, free, no key), Ollama (local), Sarvam AI, ChatGPT, Gemini, Claude or any OpenAI-compatible endpoint. Only the formula text and the entered values are sent (no name or report), and the result is labelled as not verified. |
 
 Age, sex, height, weight and lab values from the open report are filled in automatically (marked **REPORT**), including age brackets and Yes/No lab thresholds such as "Creatinine >2.0 mg/dL" after unit conversion. To re-derive the points tables without rebuilding the library: `python3 scripts/calculator_scoring.py src/data/calculator-library.json`.
 

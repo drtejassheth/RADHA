@@ -1138,12 +1138,22 @@ async function showLibraryDetail(id, container) {
 }
 
 function libCalcCtx(implId) {
-  const pid = state.settings.aiProvider || 'pollinations';
-  const p = providerById(pid);
   const key = state.report?.id || 'none';
+  const providers = state.aiProviders.map((p) => ({
+    id: p.id, name: p.name.split(' — ')[0], label: p.name, note: p.note, model: p.model,
+    // What is still needed before this provider can be used.
+    needs: p.needsKey && !p.hasKey ? 'an API key' : !p.model && ['ollama', 'custom'].includes(p.id) ? 'a model name'
+      : p.id === 'custom' && !state.settings.customBaseUrl ? 'a server URL' : null,
+  }));
   return {
     h, report: state.report, implId, store: ((state.libCalc ||= {})[key] ||= {}),
-    ai: p && (!p.needsKey || p.hasKey) ? { name: p.name.split(' — ')[0], ask: (messages) => call(api.aiChat(pid, p.model, messages)) } : null,
+    ai: providers.length ? {
+      providers,
+      current: () => (providers.some((p) => p.id === state.settings.calcAiProvider) ? state.settings.calcAiProvider : 'pollinations'),
+      choose: async (id) => { state.settings = await call(api.setSettings({ calcAiProvider: id })); },
+      ask: (id, messages) => call(api.aiChat(id, providers.find((p) => p.id === id)?.model, messages)),
+      openSettings: () => { closeModal(); setView('settings'); },
+    } : null,
     onOpenCalculators: (calcId) => {
       closeModal();
       const res = state.report?.calc.find((c) => c.id === calcId);
