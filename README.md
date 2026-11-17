@@ -6,7 +6,7 @@ An Electron desktop app that turns blood-test PDFs into a verified, structured c
 
 📖 **[Illustrated user guide](docs/USER-GUIDE.md)**: how to use RADHA, every feature with screenshots, and [how a report is generated](docs/USER-GUIDE.md#4-how-a-report-is-generated).
 
-⬇️ **[Download the macOS installer](../../releases/latest)** · 📄 Sample output: [English PDF](docs/sample/RADHA-sample-summary-english.pdf) · [Gujarati PDF](docs/sample/RADHA-sample-summary-gujarati.pdf)
+⬇️ **[Download for macOS (Apple silicon) or Windows (x64)](../../releases/latest)** · 📄 Sample output: [English PDF](docs/sample/RADHA-sample-summary-english.pdf) · [Gujarati PDF](docs/sample/RADHA-sample-summary-gujarati.pdf)
 
 | Verify every value | Summary dashboard | 83 calculators |
 |---|---|---|
@@ -58,13 +58,12 @@ Double-click either file in Finder. The first time, macOS may ask you to confirm
 
 ## Install / download
 
-`dist/RADHA-0.1.0-arm64.dmg` is the installer for Apple-silicon Macs. Open it and drag **RADHA** into Applications. To rebuild it:
+Download from the [latest release](../../releases/latest):
 
-```bash
-npm run dist
-```
+- **macOS (Apple silicon):** `RADHA-<version>-arm64.dmg`. Open it and drag **RADHA** into Applications. The app is not code-signed, so open it the first time with right-click → **Open**.
+- **Windows 10/11 (x64):** `RADHA-Setup-<version>-x64.exe`. Run it and choose where to install. The installer is not code-signed, so Windows SmartScreen may warn: click **More info → Run anyway**. Apple Vision OCR is macOS-only; on Windows use Auto, EasyOCR, Docling or Marker for scanned reports.
 
-The app is not code-signed. On another Mac, open it the first time with right-click → **Open**.
+To rebuild: `npm run dist` (macOS DMG). The Windows installer is built by the **Windows installer** GitHub Actions workflow on a Windows runner and attached to each published release (or run it manually from the Actions tab with a release tag).
 
 ## Calculator library
 

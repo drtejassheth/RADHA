@@ -1,7 +1,7 @@
 {
   "name": "radha",
   "productName": "RADHA",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "RADHA — Report Analysis & Deterministic Health Assistant",
   "type": "module",
   "main": "src/main/main.js",
@@ -9,7 +9,8 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "setup:python": "python3 -m pip install -r python/requirements.txt",
-    "dist": "electron-builder --mac dmg --arm64"
+    "dist": "electron-builder --mac dmg --arm64",
+    "dist:win": "electron-builder --win nsis --x64"
   },
   "license": "UNLICENSED",
   "dependencies": {
@@ -55,6 +56,25 @@
     "dmg": {
       "title": "RADHA ${version}",
       "artifactName": "RADHA-${version}-arm64.dmg"
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "artifactName": "RADHA-Setup-${version}-x64.exe",
+      "shortcutName": "RADHA"
     }
   }
 }

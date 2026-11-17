@@ -1,0 +1,29 @@
+name: Windows installer
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach the installer to (e.g. v0.2.1)
+        required: true
+  release:
+    types: [published]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx electron-builder --win nsis --x64 --publish never
+      - name: Attach to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: gh release upload "$TAG" dist/RADHA-Setup-*-x64.exe --clobber

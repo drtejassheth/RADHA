@@ -24,5 +24,5 @@ test('engine list respects platforms', () => {
 });
 
 test('managed Python lives inside the engines folder', () => {
-  assert.match(managedPython('/tmp/x'), /\/tmp\/x\/engines\/venv\/(bin\/python|Scripts\/python\.exe)$/);
+  assert.match(managedPython('/tmp/x'), /[\\/]tmp[\\/]x[\\/]engines[\\/]venv[\\/](bin[\\/]python|Scripts[\\/]python\.exe)$/);
 });
