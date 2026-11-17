@@ -6,6 +6,7 @@ import { analyze } from '../shared/analysis.js';
 import { DEMO_REPORTS } from './demo.js';
 import { buildExportHtml, renderStatusChartImage } from './export.js';
 import { LANGUAGES, translateBundle } from './translate.js';
+import { calcPanel, stripTags } from './libcalc.js';
 
 const api = window.radha;
 
@@ -1084,31 +1085,39 @@ function viewLibrary() {
   const fill = () => {
     const q = (state.libQuery || '').toLowerCase().trim();
     const terms = q.split(/\s+/).filter(Boolean);
+    const show = state.libShow || 'all';
     const matches = state.library.filter((c) => {
-      if (state.libOnlyImpl && !impl.has(c.id)) return false;
+      if (show === 'instant' && !impl.has(c.id) && !c.scored) return false;
+      if (show === 'reports' && !impl.has(c.id)) return false;
+      if (show === 'scored' && !c.scored) return false;
       if (state.libCat && !c.categories.includes(state.libCat)) return false;
       if (!terms.length) return true;
       const hay = (c.name + ' ' + c.aliases.join(' ') + ' ' + c.categories.join(' ') + ' ' + c.description).toLowerCase();
       return terms.every((t) => hay.includes(t));
     });
-    count.textContent = `${matches.length} of ${state.library.length} calculators · ${impl.size} run on your reports`;
+    count.textContent = `${matches.length} of ${state.library.length} calculators · ${impl.size} run on report values · ${nScored} auto-score as you answer · every other one can be filled in and calculated with your AI provider`;
     list.replaceChildren(...matches.slice(0, 300).map((c) => h('button', {
       class: 'lib-item' + (c.id === state.libSel ? ' active' : ''),
       onclick: () => { state.libSel = c.id; fill(); showLibraryDetail(c.id, detail); },
-    }, h('div', { class: 'lib-name' }, c.name, impl.has(c.id) ? h('span', { class: 'pill normal', style: { marginLeft: '6px' } }, 'runs on reports') : null),
+    }, h('div', { class: 'lib-name' }, c.name, impl.has(c.id) ? h('span', { class: 'pill normal', style: { marginLeft: '6px' } }, 'runs on reports')
+      : c.scored ? h('span', { class: 'pill scored', style: { marginLeft: '6px' } }, 'auto-score') : null),
     h('div', { class: 'small muted lib-desc' }, c.description || c.categories.slice(0, 3).join(' · ')))),
-    matches.length > 300 ? h('div', { class: 'small muted', style: { padding: '8px' } }, `Showing first 300 — refine the search to see more.`) : null);
+    ...(matches.length > 300 ? [h('div', { class: 'small muted', style: { padding: '8px' } }, `Showing first 300 — refine the search to see more.`)] : []));
   };
 
   const search = h('input', { type: 'text', placeholder: 'Search 2,000+ calculators (name, condition, specialty)…', value: state.libQuery || '', style: { flex: 1, minWidth: '260px' },
     oninput: (e) => { state.libQuery = e.target.value; fill(); } });
   const catSel = h('select', { onchange: (e) => { state.libCat = e.target.value; fill(); } },
     h('option', { value: '' }, 'All specialties'), catList.map(([k, n]) => h('option', { value: k, selected: state.libCat === k }, `${k} (${n})`)));
-  const onlyImpl = h('label', { class: 'row small', style: { gap: '6px' } }, h('input', { type: 'checkbox', checked: state.libOnlyImpl, onchange: (e) => { state.libOnlyImpl = e.target.checked; fill(); } }), 'Only calculators that run on reports');
+  const nScored = state.library.filter((c) => c.scored).length;
+  const nInstant = state.library.filter((c) => c.scored || impl.has(c.id)).length;
+  const onlyImpl = h('select', { title: 'Which calculators to list', onchange: (e) => { state.libShow = e.target.value; fill(); } },
+    [['all', `All calculators (${state.library.length})`], ['instant', `Instant results (${nInstant})`], ['reports', `Run on report values (${impl.size})`], ['scored', `Auto-scored questionnaires (${nScored})`]]
+      .map(([v, t]) => h('option', { value: v, selected: (state.libShow || 'all') === v }, t)));
 
   fill();
   if (state.libSel) showLibraryDetail(state.libSel, detail);
-  else detail.append(h('div', { class: 'empty' }, h('div', { class: 'big' }, '∑'), 'Select a calculator to see its description, inputs, formula, interpretation, evidence and references.'));
+  else detail.append(h('div', { class: 'empty' }, h('div', { class: 'big' }, '∑'), 'Select a calculator to fill it in and see the result, with its description, formula, interpretation, evidence and references.'));
   requestAnimationFrame(() => search.focus());
 
   return h('div', {},
@@ -1123,12 +1132,29 @@ async function showLibraryDetail(id, container) {
   try { entry = await call(api.libraryGet(id)); } catch (err) { container.replaceChildren(h('p', {}, err.message)); return; }
   if (!entry) { container.replaceChildren(h('p', {}, 'Not found.')); return; }
   const implId = implementedLibraryIds().get(id);
-  const res = implId && state.report?.calc.find((c) => c.id === implId);
-  container.replaceChildren(libraryDetail(entry, implId, res));
+  if (!state.aiProviders.length) await loadProviders();
+  container.replaceChildren(libraryDetail(entry, implId));
   container.scrollTop = 0;
 }
 
-function libraryDetail(e, implId, res) {
+function libCalcCtx(implId) {
+  const pid = state.settings.aiProvider || 'pollinations';
+  const p = providerById(pid);
+  const key = state.report?.id || 'none';
+  return {
+    h, report: state.report, implId, store: ((state.libCalc ||= {})[key] ||= {}),
+    ai: p && (!p.needsKey || p.hasKey) ? { name: p.name.split(' — ')[0], ask: (messages) => call(api.aiChat(pid, p.model, messages)) } : null,
+    onOpenCalculators: (calcId) => {
+      closeModal();
+      const res = state.report?.calc.find((c) => c.id === calcId);
+      state.calcTab = res?.ready ? 'results' : res?.needsInput ? 'input' : 'missing';
+      setView('calculators');
+      requestAnimationFrame(() => document.getElementById(`calc-${calcId}`)?.scrollIntoView({ block: 'center' }));
+    },
+  };
+}
+
+function libraryDetail(e, implId) {
   const sec = (title, ...content) => h('div', { class: 'lib-sec' }, h('h3', {}, title), ...content);
   const text = (t) => h('div', { class: 'lib-text' }, t);
   const versions = e.versions.map((v, i) => h('div', { class: e.versions.length > 1 ? 'lib-version' : '' },
@@ -1136,7 +1162,7 @@ function libraryDetail(e, implId, res) {
     v.description && i > 0 ? sec('Description', text(v.description)) : null,
     v.about ? sec('About', text(v.about)) : null,
     v.inputs?.length ? sec(`Inputs (${v.inputs.length})`, h('table', { class: 'lib-table' }, h('tbody', {}, v.inputs.map((x) => h('tr', {},
-      h('td', {}, x.label), h('td', { class: 'small muted' }, [x.options?.length ? x.options.join(' · ') : x.type, x.units?.length ? `units: ${x.units.join(', ')}` : '', x.help || ''].filter(Boolean).join(' — '))))))) : null,
+      h('td', {}, stripTags(x.label)), h('td', { class: 'small muted' }, [x.options?.length ? x.options.map(stripTags).join(' · ') : x.type, x.units?.length ? `units: ${x.units.join(', ')}` : '', x.help || ''].filter(Boolean).join(' — '))))))) : null,
     v.results?.length ? sec('Results', text(v.results.join(' · '))) : null,
     v.formula ? sec('Formula', text(v.formula)) : null,
     v.equations?.length ? sec('Equations', h('pre', { class: 'lib-pre' }, v.equations.join('\n'))) : null,
@@ -1155,12 +1181,7 @@ function libraryDetail(e, implId, res) {
     h('h2', { style: { marginBottom: '4px' } }, e.name),
     e.aliases.length ? h('div', { class: 'small muted' }, 'Also known as: ', e.aliases.join(' · ')) : null,
     h('div', { class: 'small muted', style: { margin: '4px 0 10px' } }, [...e.categories, ...e.types].join(' · ')),
-    implId ? h('div', { class: 'card', style: { background: 'var(--accent-soft)', padding: '10px 14px', marginBottom: '12px' } },
-      res?.ready ? h('div', {}, h('b', {}, 'Your report: '), `${res.value ?? ''} ${res.value == null ? '' : res.unit} — ${res.band}`)
-        : res?.needsInput ? h('div', {}, h('b', {}, 'Runs on your report '), '— needs a few values you can type in.')
-          : h('div', {}, h('b', {}, 'RADHA can run this calculator '), state.report ? `— this report is missing: ${(res?.missing || []).map(prettyInput).join(', ')}` : 'on any verified report.'),
-      state.report ? h('button', { class: 'btn small mt', onclick: () => { closeModal(); state.calcTab = res?.ready ? 'results' : res?.needsInput ? 'input' : 'missing'; setView('calculators'); requestAnimationFrame(() => document.getElementById(`calc-${implId}`)?.scrollIntoView({ block: 'center' })); } }, 'Open in Calculators →') : null)
-      : h('div', { class: 'small muted', style: { marginBottom: '10px' } }, 'Reference only — this calculator needs clinical inputs that are not part of a lab report.'),
+    calcPanel(e, libCalcCtx(implId)),
     e.description ? text(e.description) : null,
     versions);
 }

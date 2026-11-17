@@ -220,6 +220,7 @@ function loadLibrary() {
       id: c.id, name: c.name, aliases: c.aliases, categories: c.categories, types: c.types,
       description: (c.description || '').slice(0, 240),
       inputs: c.versions.reduce((n, v) => Math.max(n, (v.inputs || []).length), 0),
+      scored: c.versions.some((v) => v.score),
     }));
     return { byId, index };
   });

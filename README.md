@@ -73,7 +73,15 @@ To rebuild: `npm run dist` (macOS DMG). The Windows installer is built by the **
 python3 scripts/build_calculator_library.py "/path/to/ALL CALCULATOR DATA"
 ```
 
-The **Calculator library** screen searches every entry. Entries marked *runs on reports* are linked to an executable implementation.
+The **Calculator library** screen searches every entry, and every entry can be filled in and calculated. The **Calculate** box at the top of each calculator works in one of three ways:
+
+| Label | Count | How the result is produced |
+|---|---|---|
+| ✓ Verified RADHA calculator | 122 entries | RADHA's own tested implementation. Values come from the open report, can be edited, and the result updates as you type. |
+| Σ Auto-scored | 123 | Each answer shows its points; the total and risk category update as you click. Points come from the calculator's published points table (`scripts/calculator_scoring.py`). A calculator is auto-scored only when every answer matched its points unambiguously. |
+| ✎ AI-assisted | the rest | Editable inputs with units, then **Calculate with** your AI provider. Only the formula text and the entered values are sent (no name or report), and the result is labelled as not verified. |
+
+Age, sex, height, weight and lab values from the open report are filled in automatically (marked **REPORT**), including age brackets and Yes/No lab thresholds such as "Creatinine >2.0 mg/dL" after unit conversion. To re-derive the points tables without rebuilding the library: `python3 scripts/calculator_scoring.py src/data/calculator-library.json`.
 
 ## Built-in calculators
 

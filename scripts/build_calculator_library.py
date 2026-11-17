@@ -15,6 +15,8 @@ import os
 import re
 import sys
 
+from calculator_scoring import annotate
+
 csv.field_size_limit(10**9)
 
 SITE_WORDS = re.compile(r"\b(md\s?calc|omni\s?calculator|omnicalculator|omni|medscape|ebm\s?calc|qxmd|calculate by qxmd)(\.com)?('s)?\b", re.I)
@@ -211,11 +213,12 @@ def main():
     sources = [load_mdcalc(root), load_omni(root), load_ebm(root), load_medscape(root)]
     raw = sum(len(s) for s in sources)
     lib = merge([e for s in sources for e in s])
+    scored = annotate(lib)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(lib, f, ensure_ascii=False, separators=(",", ":"))
     leaks = sum(1 for m in lib if URL.search(json.dumps(m)) or SITE_WORDS.search(json.dumps(m)))
-    print(f"{raw} source records -> {len(lib)} unique calculators; {os.path.getsize(dest) / 1e6:.1f} MB; entries mentioning a source site: {leaks}")
+    print(f"{raw} source records -> {len(lib)} unique calculators; {os.path.getsize(dest) / 1e6:.1f} MB; entries mentioning a source site: {leaks}; {scored} auto-scored")
 
 
 if __name__ == "__main__":
