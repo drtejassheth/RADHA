@@ -40,7 +40,7 @@ Add your API subscription key in **Settings**. It is stored encrypted through th
 | Step | What happens | Code |
 |---|---|---|
 | 1. Ingest | Drag and drop PDFs (or choose files, or enter values manually). Engines: **Sarvam AI Document AI** (online) or local **Auto / pdfplumber / PyMuPDF / Apple Vision OCR / EasyOCR / Docling / Marker**, each installable and tunable from the app. | `src/main/sarvam.js`, `python/parse_report.py` |
-| 2. Extract | Text or Markdown is mapped to about 75 canonical biomarkers using an alias dictionary. Each gets its value, unit, reference range and flag. Patient name, age, sex, date and ID are read from the header. Unknown tests that have a range are kept as "Other". | `src/shared/extractor.js` |
+| 2. Extract | Text or Markdown is mapped to 81 canonical biomarkers using an alias dictionary. Each gets its value, unit, reference range and flag. Patient name, age, sex, date and ID are read from the header. Unknown tests that have a range are kept as "Other". | `src/shared/extractor.js` |
 | 3. Normalize | Units are converted to one standard per marker (mmol/L→mg/dL, µmol/L→mg/dL, nmol/L→ng/mL, lakhs/cumm→10³/µL, and so on). The report's own reference range is converted the same way. If the report has no range, a sex-specific default is used. | `src/shared/biomarkers.js` |
 | 4. Verify (human in the loop) | An editable table shows each value as printed next to its normalized value, with the extracted text alongside. Nothing is analysed until you press **Confirm**. | `viewVerify` in `src/renderer/app.js` |
 | 5. Calculators | The router runs every calculator whose inputs are all present and lists what is missing for the rest. | `src/shared/calculators.js` |

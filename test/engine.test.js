@@ -163,3 +163,32 @@ test('reads header details and never uses the date of birth as the report date',
   assert.equal(p.weightKg, 83.1);
   assert.equal(p.patientId, '1234567');
 });
+
+// Regressions found by the synthetic stress test (RADHA-Paper/eval/synthetic_eval.mjs).
+test('recognises "Glycated Haemoglobin" as HbA1c', () => {
+  for (const name of ['Glycated Haemoglobin', 'Glycated Hemoglobin', 'Glycosylated Hemoglobin (HbA1c)']) {
+    const m = byKey(extractReport(`${name}   6.1   %   4 - 5.6`).rows);
+    assert.equal(m.hba1c?.value, 6.1, name);
+  }
+});
+
+test('small absolute counts printed per cumm are scaled by their unit, not their size', () => {
+  const md = '| Test | Result | Unit | Range |\n|---|---|---|---|\n| Absolute Basophil Count | 50 | /cumm | 0 - 100 |\n| Absolute Eosinophil Count | 180 | cells/cumm | 20 - 500 |\n| Absolute Monocyte Count | 450 | /cumm | 200 - 1000 |';
+  const m = byKey(extractReport(md).rows);
+  assert.equal(m.abc.value, 0.05);
+  assert.equal(m.aec.value, 0.18);
+  assert.equal(m.amc.value, 0.45);
+  assert.equal(m.amc.low, 0.2);
+  assert.equal(m.amc.high, 1);
+  assert.equal(m.amc.status, 'normal');
+  // Unit-less and mislabelled values still fall back to the magnitude rule.
+  assert.equal(toCanonical('wbc', 8900, '').value, 8.9);
+  assert.equal(toCanonical('wbc', 8.9, '/cumm').value, 8.9);
+  assert.equal(toCanonical('platelets', 2.45, 'lakhs/cumm').value, 245);
+});
+
+test('reads the name after a bare "Patient :" label', () => {
+  const { patient } = extractReport('Patient : Ms. Priya Nair\nAge / Gender : 45 Years / Female\nLab No : LB-104233\n');
+  assert.equal(patient.name, 'Priya Nair');
+  assert.equal(patient.patientId, 'LB-104233');
+});

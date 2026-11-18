@@ -1,7 +1,7 @@
 {
   "name": "radha",
   "productName": "RADHA",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "RADHA — Report Analysis & Deterministic Health Assistant",
   "type": "module",
   "main": "src/main/main.js",

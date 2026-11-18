@@ -126,7 +126,7 @@ export function extractPatient(text) {
   const p = { name: '', age: null, sex: '', date: '', patientId: '', lab: '', dob: '', heightCm: null, weightKg: null };
   const DATE = String.raw`(\d{1,2}[\/\-.\s](?:\d{1,2}|[A-Za-z]{3,9})[\/\-.\s,]*\d{2,4}|\d{4}-\d{2}-\d{2}|[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})`;
 
-  const nm = /(?:patient(?:'s)?\s*name|name\s*of\s*(?:the\s*)?patient|^\s*name)\s*[:\-]\s*(?:(?:mr|mrs|ms|miss|dr|master|baby|smt|shri)\.?\s+)?([A-Za-z][A-Za-z.' ]{1,60}?)(?=\s{2,}|\s+\d|\s*\(|\s+(?:age|sex|gender|uhid|patient|ref|date|lab|sample|reg|id|mrn)\b|\s*[|,]|$)/im.exec(t);
+  const nm = /(?:patient(?:'s)?\s*name|name\s*of\s*(?:the\s*)?patient|^\s*(?:patient(?=\s*[:\-])|name))\s*[:\-]\s*(?:(?:mr|mrs|ms|miss|dr|master|baby|smt|shri)\.?\s+)?([A-Za-z][A-Za-z.' ]{1,60}?)(?=\s{2,}|\s+\d|\s*\(|\s+(?:age|sex|gender|uhid|patient|ref|date|lab|sample|reg|id|mrn)\b|\s*[|,]|$)/im.exec(t);
   if (nm) p.name = nm[1].trim().replace(/\s+/g, ' ');
   if (!p.name) {
     // "Last Name: Mehta   First Name: Dr Arjun"

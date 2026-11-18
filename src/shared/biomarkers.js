@@ -73,7 +73,7 @@ export const BIOMARKERS = [
   B('glucose_random', 'Random Glucose', 'Diabetes / Glycemic', 'mg/dL',
     ['(plasma |blood )?glucose[,\\s\\-–]*\\(?\\s*random\\s*\\)?', 'random (plasma |blood )?(glucose|sugar)', 'r\\.?b\\.?s\\.?'],
     { conv: GLU, ref: { low: 70, high: 139 }, crit: { low: 54, high: 400 } }),
-  B('hba1c', 'HbA1c', 'Diabetes / Glycemic', '%', ['h\\.?b\\.?\\s*a\\s*1\\s*c', 'glyc(at|osyl)ated ha?emoglobin', 'a1c'],
+  B('hba1c', 'HbA1c', 'Diabetes / Glycemic', '%', ['h\\.?b\\.?\\s*a\\s*1\\s*c', 'glyc(osyl)?ated ha?emoglobin', 'a1c'],
     { conv: { '%': 1, 'mmol/mol': (v) => v / 10.929 + 2.15 }, ref: { low: 4.0, high: 5.6 } }),
   B('insulin_fasting', 'Fasting Insulin', 'Diabetes / Glycemic', 'µIU/mL', ['(serum )?insulin[,\\s\\-–]*\\(?\\s*fasting\\s*\\)?', 'fasting (serum )?insulin', 'insulin'],
     { conv: { 'uiu/ml': 1, 'miu/l': 1, 'uu/ml': 1, 'mu/l': 1, 'pmol/l': 1 / 6 }, ref: { low: 2.6, high: 24.9 } }),
@@ -175,8 +175,30 @@ function applyConv(conv, v) {
   return typeof conv === 'function' ? conv(v) : v * conv;
 }
 
-function scaleCount(kind, v) {
+// What a printed count unit says about magnitude: per µL as-is, thousands, lakhs (10^5) or millions per µL.
+// Returns null when the unit is missing or says nothing about scale, so the magnitude rule applies.
+function countUnitScale(unit) {
+  const u = normUnit(unit).replace(/^(cells|cell|count|no\.?|nos\.?)/, '').replace(/^x/, '');
+  if (!u) return null;
+  if (/lakh|lac/.test(u)) return 'lakh';
+  if (/mill|10\^?6|10\*\*6|10⁶|10e6/.test(u)) return 'million';
+  if (/thou|10\^?3|10\*\*3|10³|10e3|^k\/|^thou/.test(u)) return 'thousand';
+  if (/^(\/|per)ul$/.test(u)) return 'unit';
+  return null;
+}
+
+function scaleCount(kind, v, unit) {
   if (v == null || !Number.isFinite(v)) return v;
+  // A printed unit decides the scale when it names one. Magnitude alone fails for small counts:
+  // 50 /cumm basophils is 0.05 ×10³/µL, not 50.
+  let printed = kind === 'fraction' ? null : countUnitScale(unit);
+  // Counts per µL are whole numbers; "8.9 /cumm" is a mislabelled thousands value, so fall back to magnitude.
+  if (printed === 'unit' && !Number.isInteger(v)) printed = null;
+  if (printed) {
+    const toThousand = { unit: 1 / 1000, thousand: 1, lakh: 100, million: 1000 }[printed];
+    if (kind === 'count6') return printed === 'million' ? v : v * toThousand / 1000;
+    return v * toThousand;
+  }
   switch (kind) {
     case 'count3': // target 10^3/µL; raw /cumm values are in the thousands
       return v > 200 ? v / 1000 : v;
@@ -202,7 +224,7 @@ export function toCanonical(key, value, unit, low = null, high = null) {
   if (!b) return { value, low, high, converted: false, unitKnown: false };
   if (b.unit === 'ratio') return { value, low, high, converted: false, unitKnown: true };
   if (b.scale) {
-    const f = (x) => (x == null ? x : scaleCount(b.scale, x));
+    const f = (x) => (x == null ? x : round(scaleCount(b.scale, x, unit), 4));
     const v = f(value);
     return { value: v, low: f(low), high: f(high), converted: v !== value, unitKnown: true };
   }
