@@ -6,6 +6,8 @@ An Electron desktop app that turns blood-test PDFs into a verified, structured c
 
 📖 **[Illustrated user guide](docs/USER-GUIDE.md)**: how to use RADHA, every feature with screenshots, and [how a report is generated](docs/USER-GUIDE.md#4-how-a-report-is-generated).
 
+📄 **[Research paper](docs/paper/RADHA-Research-Paper.md)**: design of RADHA and its evaluation on 300 synthetic reports.
+
 ⬇️ **[Download for macOS (Apple silicon) or Windows (x64)](../../releases/latest)** · 📄 Sample output: [English PDF](docs/sample/RADHA-sample-summary-english.pdf) · [Gujarati PDF](docs/sample/RADHA-sample-summary-gujarati.pdf)
 
 | Verify every value | Summary dashboard | 83 calculators |
