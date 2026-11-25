@@ -10,7 +10,7 @@ Tejas Sheth<sup>1</sup> \[M.B.B.S., M.B.A.(H.A.), P.G.C.I.H., P.G.D.A.D.C\]
 
 **Running title:** Rule-based, local-first lab report summaries
 
-**Word count:** abstract 374; main text about 4,650 (excluding tables, figure legends and references)
+**Word count:** abstract 408; main text about 4,950 (excluding tables, figure legends and references)
 
 ## Abstract
 
@@ -20,9 +20,9 @@ Tejas Sheth<sup>1</sup> \[M.B.B.S., M.B.A.(H.A.), P.G.C.I.H., P.G.D.A.D.C\]
 
 **Methods:** RADHA is an Electron application for macOS and Windows. Report text comes from one of six local parsing engines or, if the user chooses, an online document service. A pattern-based extractor maps test names to 81 canonical biomarkers (192 name patterns), converts units (106 conversion rules) and classifies each value against the report’s own reference interval. The user confirms every value before analysis. Confirmed values feed 83 calculators implemented from their source publications, 15 rule families that produce evidence-linked observations, and a deterministic generator of questions for the doctor. LLMs are optional and receive only de-identified data. We generated 300 synthetic reports (10,581 test rows) in five layouts, with alternative test names, units and missing reference intervals, and compared the extractor’s output with the known ground truth.
 
-**Results:** The extractor found 99.6% of test rows and assigned none to the wrong biomarker. Among found rows, the normalised value was correct in 98.9%, the reference interval in 98.4% and the low/normal/high status in 99.1%; 98.7% of all rows came through correct end to end. Every error traced to one of three faults: a misspelt name pattern, a magnitude rule for small absolute leukocyte counts printed per cubic millimetre, and an unrecognised header label. For a synthetic two-year demonstration case, RADHA ran 45 of 83 calculators and produced 11 observations and 62 questions for the doctor.
+**Results:** The extractor found 99.6% of test rows and assigned none to the wrong biomarker. Among found rows, the normalised value was correct in 98.9%, the reference interval in 98.4% and the low/normal/high status in 99.1%; 98.7% of all rows came through correct end to end. Every error traced to one of three faults: a misspelt name pattern, a magnitude rule for small absolute leukocyte counts printed per cubic millimetre, and an unrecognised header label. After these were corrected, the same 300 reports and 300 new reports generated with a different seed were processed without a single error. For a synthetic two-year demonstration case, RADHA ran 45 of 83 calculators and produced 11 observations and 62 questions for the doctor.
 
-**Conclusions:** A rule-based pipeline with a mandatory verification step can turn varied lab report text into structured, traceable summaries without relying on an LLM for any number. Synthetic testing exposed concrete faults that the unit tests had missed. Evaluation on real, de-identified reports and with patients is the next step.
+**Conclusions:** A rule-based pipeline with a mandatory verification step can turn varied lab report text into structured, traceable summaries without relying on an LLM for any number. Synthetic testing exposed concrete faults that the unit tests had missed, and because they were deterministic each could be traced and fixed. Evaluation on real, de-identified reports and with patients is the next step.
 
 **Keywords:** laboratory test results; information extraction; clinical decision support; medical calculators; patient health records; health literacy; privacy; large language models; India
 
@@ -114,13 +114,15 @@ Confirmed reports for the same patient form a time series. The trends view shows
 
 ### Evaluation
 
-**Software tests.** The code base contains 25 automated tests. They cover extraction of patient details and results from a plain-text report and from Markdown tables, unit and count normalisation, date parsing, the calculators (including the pooled cohort equations against the guideline’s worked examples, the MELD family and the kidney equations), the rule engine, the engine installer, and the scoring of library calculators. All 25 pass on version 0.2.3.
+**Software tests.** The code base contains 25 automated tests. They cover extraction of patient details and results from a plain-text report and from Markdown tables, unit and count normalisation, date parsing, the calculators (including the pooled cohort equations against the guideline’s worked examples, the MELD family and the kidney equations), the rule engine, the engine installer, and the scoring of library calculators. All 25 pass on version 0.2.3. Three regression tests were added after the stress test described below, one for each fault it found, bringing the total to 28.
 
 **Synthetic stress test.** Unit tests check the cases a developer has thought of. To probe the variation the extractor meets in practice, we wrote a generator of synthetic reports and scored RADHA’s output against the generator’s ground truth. Each report belongs to a fictitious patient with a random sex, age (18–87 years), laboratory ID and report date, and has a header in one of three styles. It contains 25 to 45 tests drawn at random from a pool of 77 biomarkers: every biomarker with a reference interval, except four that are rarely reported and the “Other” panel.
 
 For each test the generator chose a target status (low with probability 0.2 where a lower limit exists, high with probability 0.2, otherwise normal) and drew a value at least 10% of the interval width away from either limit, so that rounding could not change the status. Test names were varied: for 28 commonly renamed tests, 70% of rows used an alternative name from a list of names used by Indian laboratories, written independently of RADHA’s patterns (for example “SGPT”, “Total Leucocyte Count”, “PPBS” and “Glycated Haemoglobin”). Units were varied: about 35% of rows with a realistic alternative unit were printed in it, absolute counts were printed per cubic millimetre half the time, and platelets were printed in one of three conventions. The reference interval was left out of 10% of rows. Reports were rendered in five layouts that imitate what the parsing engines produce: fixed-width text, fixed-width text with an H/L flag column, a Markdown table, an HTML table, and a layout with the interval on the line below the result. We generated 60 reports per layout, 300 in all, from a fixed random seed.
 
 The outcomes were the proportion of test rows found under the correct biomarker; among found rows, the proportions whose normalised value, reference interval and low/normal/high status matched the ground truth (values within 2% or 0.011 units); the proportion of all rows that ended with the correct status; the number of rows assigned to a biomarker that was not on the report; and the accuracy of five header fields. This test measures the text-to-structure layer only. It does not test the PDF and OCR engines that sit upstream of it.
+
+After the error analysis we corrected each fault in the code and re-ran the test twice: on the same 300 reports, to confirm that the faults were gone, and on 300 new reports generated from a different seed (10,492 test rows), to check that the corrections had not broken anything else.
 
 **Demonstration case.** RADHA ships with two synthetic reports for a fictitious man, aged 51 at the first: one from 2023 in Markdown-table form and one from 2024 in plain text. We ran both through the whole pipeline (extraction, calculators, rules and questions, with the 2023 report as the previous report for 2024) and recorded the output.
 
@@ -189,17 +191,33 @@ There were no other errors. All three faults are deterministic: each fails the s
 
 | **Fault** | **Rows or reports affected** | **Effect** | **Visible at verification?** | **Fix** |
 | --- | --- | --- | --- | --- |
-| HbA1c name pattern misspelt; “Glycated Haemoglobin” not recognised | 39 rows (0.37%) | 24 kept as unrecognised “Other” rows with correct value; 15 dropped | Partly: an “Other” row with the printed name, or a missing test | Correct the pattern |
-| Small absolute leukocyte counts per mm³ (basophils, eosinophils, monocytes) not rescaled | 113 value errors; 67 interval errors | Value or lower limit 1,000 times too high; status wrong | Yes: normalised value shown beside the printed value | Use the printed unit, not the magnitude, when a unit is present |
-| Header label “Patient :” not recognised | 100 of 300 reports | Name field empty; age, sex, date and ID correct | Yes: empty name field | Add the label to the header parser |
+| HbA1c name pattern misspelt; “Glycated Haemoglobin” not recognised | 39 rows (0.37%) | 24 kept as unrecognised “Other” rows with correct value; 15 dropped | Partly: an “Other” row with the printed name, or a missing test | Pattern corrected |
+| Small absolute leukocyte counts per mm³ (basophils, eosinophils, monocytes) not rescaled | 113 value errors; 67 interval errors | Value or lower limit 1,000 times too high; status wrong | Yes: normalised value shown beside the printed value | A printed unit (per µL, thousands, lakhs or millions) now sets the scale; magnitude is used only when no unit is printed or the value is fractional |
+| Header label “Patient :” not recognised | 100 of 300 reports | Name field empty; age, sex, date and ID correct | Yes: empty name field | Label added to the header parser |
+
+### After correction
+
+Each fault needed a small change: one corrected regular expression, a unit-aware scaling rule for cell counts (about 20 lines), and one extra label in the header pattern. With the corrected code, all 10,581 rows of the original 300 reports were found, normalised and classified correctly, and every patient name was read (Table 4). On the 300 new reports (10,492 rows) the result was the same: no missed tests, no value, interval or status errors, no wrong-biomarker matches and all five header fields correct. All 28 automated tests pass. The corrections were released as version 0.2.4.
+
+These figures need careful reading. A perfect score on the reports that exposed the faults shows only that the faults are fixed. The new reports are a fairer check, but they come from the same generator, with the same name lists, unit conventions and layouts, so they test for regressions rather than for the variety of real laboratory reports. They are not an estimate of accuracy on real reports.
+
+**Table 4.** Stress-test results before and after the three faults were corrected.
+
+| **Report set** | **Code** | **Reports** | **Rows** | **Found, %** | **Value correct, %** | **Interval correct, %** | **Status correct, %** | **Name read, %** |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Original (seed 20261118) | 0.2.3 | 300 | 10,581 | 99.6 | 98.9 | 98.4 | 99.1 | 66.7 |
+| Original (seed 20261118) | 0.2.4 | 300 | 10,581 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
+| New (seed 7311) | 0.2.4 | 300 | 10,492 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
+
+Value, interval and status accuracy are among rows that were found.
 
 ### Demonstration case
 
-Table 4 shows the output for the demonstration case. The 2023 Markdown report yielded 26 tests and the 2024 plain-text report 55, all mapped to known biomarkers. For the 2024 report, 45 of the 83 calculators ran, 10 more needed only values that never appear on a lab report, and 28 lacked at least one laboratory or demographic input. The rules produced 11 observations, two rated “attention” (low iron stores and albumin in the urine) and nine rated “watch”, and the generator produced 62 questions for the doctor.
+Table 5 shows the output for the demonstration case. The 2023 Markdown report yielded 26 tests and the 2024 plain-text report 55, all mapped to known biomarkers. For the 2024 report, 45 of the 83 calculators ran, 10 more needed only values that never appear on a lab report, and 28 lacked at least one laboratory or demographic input. The rules produced 11 observations, two rated “attention” (low iron stores and albumin in the urine) and nine rated “watch”, and the generator produced 62 questions for the doctor.
 
 The inputs that most often kept a calculator from running were weight (11 calculators), height (6), INR (6), body mass index (5) and bicarbonate (4). Three of these five are not laboratory values at all. Once the user enters height and weight in the patient profile, they are reused for every later report.
 
-**Table 4.** Pipeline output for the two synthetic demonstration reports.
+**Table 5.** Pipeline output for the two synthetic demonstration reports.
 
 |  | **2023 report (Markdown table)** | **2024 report (plain text)** |
 | --- | --- | --- |
@@ -220,7 +238,7 @@ The 2024 analysis used the 2023 report as the previous report, so its questions 
 
 RADHA shows that the routine part of reading a lab report (finding the values, putting them in standard units, comparing them with the right interval and running the usual derived scores) can be done by ordinary deterministic code on a personal computer. On synthetic reports in the layouts its parsing engines produce, the extractor found 99.6% of tests, assigned none to the wrong biomarker, and brought 98.7% of all rows through with the correct status.
 
-The errors are more interesting than the headline figures. They all came from three faults, each a specific mistake that repeats exactly. None was caught by the automated tests, which passed throughout; the synthetic test found all three within minutes of being written, and each needs only a small change to fix. This is the practical argument for deterministic extraction. Its errors are systematic, so they can be found, explained and removed, and a fix stays fixed. An LLM-based extractor might well cope better with unusual test names, but its mistakes would not repeat in the same way, and a test it passes today says less about its output tomorrow.
+The errors are more interesting than the headline figures. They all came from three faults, each a specific mistake that repeats exactly. None was caught by the automated tests, which passed throughout. The synthetic test found all three within minutes of being written, and each took only a small change to fix, after which both the original and a fresh set of synthetic reports were processed without error. This is the practical argument for deterministic extraction. Its errors are systematic, so they can be found, explained and removed, and a fix stays fixed. An LLM-based extractor might well cope better with unusual test names, but its mistakes would not repeat in the same way, and a test it passes today says less about its output tomorrow.
 
 The verification screen is the second line of defence. In this test it would have put most of the errors in front of the user: an unrecognised HbA1c appears as an “Other” row under its printed name, a basophil count 1,000 times too high sits beside the value as printed, and an empty name field is hard to miss. We have not measured how often users actually notice such errors, and some will certainly press Confirm without looking closely. The screen reduces the risk; it does not remove it.
 
@@ -238,21 +256,21 @@ With a local parsing engine, nothing leaves the computer unless the user asks fo
 
 ### Limitations
 
-This study has clear limitations. First, every report in the evaluation was synthetic, and the generator was written by the developer who wrote the extractor. The alternative names were written without reference to the patterns, but the two still share one person’s idea of what a lab report looks like, so the accuracy figures should be read as an upper bound for real reports. Second, the stress test started from text. It did not evaluate the PDF and OCR engines, where errors on scanned or photographed reports are likely to be larger. Third, the content of the rules and the generated questions has not been reviewed by an independent clinical panel, and the default reference intervals are for adults; they do not cover children or pregnancy. Fourth, we did not study users. We do not know whether patients understand the output, whether it changes the conversation with their doctor, or whether it causes needless worry. Fifth, the quality of the LLM narratives and of the translations was not assessed. Finally, the tool was built and evaluated by a single developer around the layouts of Indian private laboratories, and reports from elsewhere may differ.
+This study has clear limitations. First, every report in the evaluation was synthetic, and the generator was written by the developer who wrote the extractor. The alternative names were written without reference to the patterns, but the two still share one person’s idea of what a lab report looks like, so the accuracy figures should be read as an upper bound for real reports. This applies with more force to the results after correction: the faults were fixed using the generator’s output, so a perfect rerun shows that they are gone, not that RADHA reads every real report correctly. Second, the stress test started from text. It did not evaluate the PDF and OCR engines, where errors on scanned or photographed reports are likely to be larger. Third, the content of the rules and the generated questions has not been reviewed by an independent clinical panel, and the default reference intervals are for adults; they do not cover children or pregnancy. Fourth, we did not study users. We do not know whether patients understand the output, whether it changes the conversation with their doctor, or whether it causes needless worry. Fifth, the quality of the LLM narratives and of the translations was not assessed. Finally, the tool was built and evaluated by a single developer around the layouts of Indian private laboratories, and reports from elsewhere may differ.
 
 ### Future work
 
-The immediate next steps are to fix the three faults and add the synthetic test to the automated suite, so that each new release is checked against it. Beyond that, we plan to assemble a test set of real, de-identified reports from several laboratories, with ethics committee approval, and use it to compare the parsing engines end to end; to have the rules and questions reviewed by clinicians; to map the biomarker dictionary to LOINC codes \[18\] so that results can be exchanged with other systems; and to study patients using RADHA before real consultations.
+The three faults are fixed and each is covered by a regression test. The synthetic test should now also run automatically before every release, with its name and unit lists extended as new report formats turn up. Beyond that, we plan to assemble a test set of real, de-identified reports from several laboratories, with ethics committee approval, and use it to compare the parsing engines end to end; to have the rules and questions reviewed by clinicians; to map the biomarker dictionary to LOINC codes \[18\] so that results can be exchanged with other systems; and to study patients using RADHA before real consultations.
 
 ## Conclusions
 
-RADHA turns the PDF lab report a patient receives into a structured, checked and explained summary, using deterministic code that runs on the patient’s own computer and asking the patient to confirm every value. On synthetic reports its extraction layer was accurate, and its errors were few, systematic and easy to fix. Rule-based processing will not read every report a laboratory can produce, but when it fails it fails in ways that can be seen and corrected, which for health data matters more than fluency. Whether the summaries actually help patients is a question for a study with real reports and real users.
+RADHA turns the PDF lab report a patient receives into a structured, checked and explained summary, using deterministic code that runs on the patient’s own computer and asking the patient to confirm every value. On synthetic reports its extraction layer was accurate, and its errors were few and systematic; all three were fixed soon after they were found. Rule-based processing will not read every report a laboratory can produce, but when it fails it fails in ways that can be seen and corrected, which for health data matters more than fluency. Whether the summaries actually help patients is a question for a study with real reports and real users.
 
 ## Declarations
 
 **Ethics approval:** Not applicable. The study used only synthetic data and involved no human participants or patient records.
 
-**Data and code availability:** The synthetic report generator, the evaluation scripts and their full output are available from the author \[or: at repository/DOI\]. The RADHA application is free to download; its source code is held in a private repository and is available from the author on reasonable request.
+**Data and code availability:** The synthetic report generator, the evaluation scripts and their full output, before and after correction, are available from the author \[or: at repository/DOI\]. The RADHA application is free to download; its source code is available at https://github.com/drtejassheth/RADHA.
 
 **Competing interests:** The author developed RADHA and distributes it free of charge.
 
