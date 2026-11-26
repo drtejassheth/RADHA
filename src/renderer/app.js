@@ -7,6 +7,7 @@ import { DEMO_REPORTS } from './demo.js';
 import { buildExportHtml, renderStatusChartImage } from './export.js';
 import { LANGUAGES, translateBundle } from './translate.js';
 import { calcPanel, stripTags } from './libcalc.js';
+import { SECTIONS, FIELDS, FIELD, extractProfileFacts, compareFact, applyFacts, derived, displayValue, getValue, manualSource } from '../shared/caseRecord.js';
 
 const api = window.radha;
 
@@ -514,6 +515,7 @@ function makeDraft(text, source) {
     rawText: ex.text,
     source,
     pid: matchProfile(ex.patient),
+    facts: extractProfileFacts(text || ''),
   };
 }
 
@@ -530,7 +532,8 @@ function matchProfile(p) {
 function editReport(r) {
   const q = { id: ++qid, fileName: r.source?.fileName || 'Saved report', status: 'ready', engine: 'edit',
     draft: { patient: { ...r.patient }, rows: r.rows.map((x) => ({ ...x })), rawText: r.rawText || '', source: r.source || { fileName: 'Saved report', engine: 'edit' },
-      pid: r.pid || matchProfile(r.patient), reportId: r.id, createdAt: r.createdAt, calcInputs: r.calcInputs, narrative: r.narrative } };
+      pid: r.pid || matchProfile(r.patient), reportId: r.id, createdAt: r.createdAt, calcInputs: r.calcInputs, narrative: r.narrative,
+      facts: extractProfileFacts(r.rawText || '') } };
   state.queue.push(q);
   state.activeDraftId = q.id;
   setView('verify');
@@ -551,7 +554,7 @@ function loadDemo() {
     state.queue.push({ id: ++qid, fileName: d.fileName, status: 'ready', engine: d.engine, draft: makeDraft(d.text, { fileName: d.fileName, engine: d.engine }) });
   }
   state.activeDraftId = state.queue.find((q) => q.status === 'ready').id;
-  toast('Two demo reports loaded. Verify each one to continue.');
+  toast('Demo loaded: a diabetes case record and two lab reports. Verify each one to continue.');
   setView('verify');
 }
 
@@ -668,16 +671,20 @@ function viewVerify() {
 
   const table = h('div', { class: 'table-wrap' }, h('table', { class: 'verify-table' },
     h('thead', {}, h('tr', {}, ['', 'Test', 'Value', 'Unit', 'Ref low', 'Ref high', 'Normalized (standard unit)', 'Status', ''].map((t) => h('th', {}, t)))),
-    h('tbody', {}, rowsEl.length ? rowsEl : h('tr', {}, h('td', { colspan: 9, class: 'muted', style: { textAlign: 'center', padding: '24px' } }, 'No tests yet — use “Add test”.')))));
+    h('tbody', {}, rowsEl.length ? rowsEl : h('tr', {}, h('td', { colspan: 9, class: 'muted', style: { textAlign: 'center', padding: '24px' } },
+      (d.facts || []).length ? 'No lab tests in this document. Its patient details are listed above; add tests here only if it also has lab results.' : 'No tests yet — use “Add test”.')))));
 
   const warnings = d.source.warnings?.length ? h('div', { class: 'banner', style: { margin: '0 0 12px' } }, d.source.warnings.join(' ')) : null;
   const unitIssues = d.rows.filter((r) => r.unitWarning && r.include !== false).length;
+  const docOnly = !d.rows.length && (d.facts || []).length > 0;
+  const factsEl = factsCard(d);
 
   return h('div', {},
     pending.length > 1 ? h('div', { class: 'row mb' }, h('span', { class: 'muted' }, 'Reports waiting:'),
       pending.map((x) => h('button', { class: 'btn small' + (x.id === q.id ? ' primary' : ''), onclick: () => { state.activeDraftId = x.id; render(); } }, x.fileName))) : null,
     warnings,
     patientForm,
+    factsEl,
     h('div', { class: 'grid mt', style: { gridTemplateColumns: d.rawText ? 'minmax(0, 3fr) minmax(0, 1.2fr)' : '1fr' } },
       h('div', {},
         h('div', { class: 'row mb' }, h('h2', { style: { margin: 0, fontSize: '15px' } }, `${d.rows.length} tests extracted`),
@@ -688,7 +695,8 @@ function viewVerify() {
           h('button', { class: 'btn danger', onclick: () => { if (confirm('Discard this report?')) { state.queue = state.queue.filter((x) => x !== q); render(); } } }, 'Discard'),
           h('span', { class: 'spacer' }),
           unitIssues ? h('span', { class: 'small', style: { color: 'var(--warn)' } }, `${unitIssues} unit(s) need checking`) : null,
-          h('button', { class: 'btn primary', onclick: () => confirmDraft(q) }, pending.length > 1 ? 'Confirm & verify next →' : 'Confirm & analyse →'))),
+          docOnly ? h('button', { class: 'btn primary', onclick: () => saveDocumentToProfile(q) }, 'Save details to patient profile →')
+            : h('button', { class: 'btn primary', onclick: () => confirmDraft(q) }, pending.length > 1 ? 'Confirm & verify next →' : 'Confirm & analyse →'))),
       d.rawText ? h('details', { class: 'card', open: true }, h('summary', { style: { cursor: 'pointer', fontWeight: 600 } }, 'Extracted text (for comparison)'),
         h('div', { class: 'raw-text mt' }, d.rawText)) : null),
   );
@@ -736,6 +744,9 @@ async function confirmDraft(q) {
     const report = { ...buildReport({ id: d.reportId, pid, patient: { ...p }, rows: d.rows.map((r) => ({ ...r })), source: d.source, rawText: d.rawText, createdAt: d.createdAt, calcInputs: d.calcInputs || {} }),
       ...(d.narrative ? { narrative: d.narrative } : {}) };
     const saved = await call(api.saveReport(report));
+    // Patient details printed in the report go to the profile, citing this report.
+    // (reloadReports rebuilds every report with the updated profile, so BP, smoking and conditions reach the calculators.)
+    if (chosenFacts(d).length) await applyDraftFacts(d, pid, { kind: 'report', id: saved.id, fileName: d.source.fileName, date: p.date });
     await reloadReports();
     state.report = state.reports.find((x) => x.id === saved.id) || saved;
     state.trendKey = groupKey(saved);
@@ -783,6 +794,149 @@ function withProfileInputs(calcInputs, prof) {
   ascvd.bp_treated = prof.bpTreated ? 'yes' : 'no';
   if (prof.smoking) ascvd.smoker = prof.smoking === 'current' ? 'yes' : 'no';
   return { ...calcInputs, ascvd_pce: { ...ascvd, ...(calcInputs.ascvd_pce || {}) } };
+}
+
+
+// ------------------------------------------------------------------ patient details found in a document
+const STATUS_TEXT = { new: 'empty in profile', same: 'already in profile', update: 'replaces a value from an older document',
+  older: 'profile has a newer value', manual: 'profile has a value typed in by hand' };
+
+/** Facts the user left ticked on the Verify screen. */
+function chosenFacts(d) { return (d.facts || []).filter((f) => f.apply !== false && f.value != null && f.value !== ''); }
+
+function factInput(fact, onChange) {
+  const fd = FIELD[fact.key];
+  const opts = fd.type === 'yesno' ? [['yes', 'Yes'], ['no', 'No']] : fd.type === 'presence' ? [['present', 'Present'], ['absent', 'Absent']] : fd.options;
+  if (opts) {
+    return h('select', { onchange: (e) => onChange(e.target.value) },
+      opts.map(([v, l]) => h('option', { value: v, selected: fact.value === v }, l)));
+  }
+  const num = fd.type === 'number' || fd.type === 'year';
+  return h('input', { type: num ? 'number' : 'text', step: 'any', value: fact.value ?? '',
+    onchange: (e) => onChange(num ? (e.target.value === '' ? null : +e.target.value) : e.target.value.trim()) });
+}
+
+function factsCard(d) {
+  const facts = d.facts || [];
+  if (!facts.length) return null;
+  const prof = profileOf(d.pid);
+  for (const f of facts) {
+    if (f.status) continue;
+    f.status = prof ? compareFact(prof, f, d.patient.date) : 'new';
+    f.apply = f.status === 'new' || f.status === 'update' || f.status === 'same';
+  }
+  const label = (key) => FIELD[key]?.label || key;
+  const section = (key) => SECTIONS.find(([k]) => k === FIELD[key]?.section)?.[1] || '';
+  const ticked = facts.filter((f) => f.apply !== false).length;
+  const rows = facts.map((f) => h('tr', { class: f.apply === false ? 'excluded' : '' },
+    h('td', {}, h('input', { type: 'checkbox', checked: f.apply !== false, title: 'Save to the patient profile', onchange: (e) => { f.apply = e.target.checked; render(); } })),
+    h('td', {}, h('b', {}, label(f.key)), h('div', { class: 'small muted' }, section(f.key))),
+    h('td', { style: { width: '170px' } }, factInput(f, (v) => { f.value = v; f.edited = true; render(); })),
+    h('td', { class: 'small' }, h('div', { class: 'printed' }, `“${f.printed}”`), f.page ? h('div', { class: 'muted' }, `page ${f.page}`) : null,
+      f.edited ? h('div', { style: { color: 'var(--accent)' } }, 'edited') : null),
+    h('td', { class: 'small' }, prof ? h('div', {}, displayValue(f.key, getValue(prof, f.key))) : null,
+      h('div', { class: 'muted' }, prof ? STATUS_TEXT[f.status] : 'new profile'))));
+  return h('details', { class: 'card mt facts-card', open: true },
+    h('summary', { class: 'row', style: { cursor: 'pointer' } },
+      h('h2', { style: { margin: 0, fontSize: '15px' } }, `Patient details found in this document (${facts.length})`),
+      h('span', { class: 'small muted' }, `${ticked} ticked to save to the profile`)),
+    h('p', { class: 'small muted' }, 'Read from the document text. Ticked details are saved to the patient profile with a reference to this document and the line they were read from. Details are left unticked when the profile already has a value typed in by hand or taken from a newer document. Check each value against the printed line.'),
+    h('div', { class: 'row mb' },
+      h('button', { class: 'btn small', onclick: () => { facts.forEach((f) => { f.apply = true; }); render(); } }, 'Tick all'),
+      h('button', { class: 'btn small', onclick: () => { facts.forEach((f) => { f.apply = false; }); render(); } }, 'Untick all')),
+    h('div', { class: 'table-wrap' }, h('table', { class: 'facts-table' },
+      h('thead', {}, h('tr', {}, ['Save', 'Detail', 'Value', 'As printed in the document', 'In the profile now'].map((t) => h('th', {}, t)))),
+      h('tbody', {}, rows))));
+}
+
+/** Write the ticked details into the profile, citing `source` ({kind: report|document, id, fileName, date}). */
+async function applyDraftFacts(d, pid, source, document = null) {
+  state.patients = await call(api.listPatients());
+  const prof = profileOf(pid);
+  if (!prof) return;
+  const next = applyFacts(prof, chosenFacts(d).map(({ key, value, printed, page }) => ({ key, value, printed, page })), source);
+  if (document) next.documents = [...(prof.documents || []).filter((x) => x.id !== document.id), document];
+  await call(api.savePatient(next));
+}
+
+/** A document with patient details but no lab tests (for example a diabetes case record): save it to the profile. */
+async function saveDocumentToProfile(q) {
+  const d = q.draft;
+  const p = d.patient;
+  if (!chosenFacts(d).length) { toast('Tick at least one detail to save, or discard this document.', true); return; }
+  if (!p.date) { toast('Please enter the document date — it shows which details are the most recent.', true); return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date)) p.date = parseDate(p.date) || p.date;
+  if (!d.pidChosen) d.pid = matchProfile(p);
+  if (d.pid === 'new' && !p.name) { toast('Enter the patient name, or choose an existing patient under “Save this report under”.', true); return; }
+  try {
+    const pid = await upsertProfileFromDraft(d);
+    const doc = { id: crypto.randomUUID(), fileName: d.source.fileName, engine: d.source.engine, date: p.date, rawText: d.rawText, savedAt: new Date().toISOString() };
+    await applyDraftFacts(d, pid, { kind: 'document', id: doc.id, fileName: doc.fileName, date: doc.date }, doc);
+    await reloadReports();
+    q.status = 'done';
+    q.draft = null;
+    const next = state.queue.find((x) => x.status === 'ready');
+    if (next) { state.activeDraftId = next.id; toast('Details saved to the patient profile. Verify the next document.'); setView('verify'); return; }
+    state.patientSel = pid;
+    state.activePid = pid;
+    toast(`${chosenFacts(d).length || 'The'} details saved to the patient profile.`);
+    setView('patients');
+  } catch (err) { toast('Could not save: ' + err.message, true); }
+}
+
+/** "from case-record.pdf · 12 Mar 2024 · p. 2" under a profile field; opens the document at that line. */
+function sourceTag(prof, key) {
+  const s = prof.sources?.[key];
+  if (!s) return null;
+  if (s.kind === 'manual') return h('span', { class: 'src-tag muted' }, `entered by hand${s.date ? ` · ${fmtDate(s.date)}` : ''}`);
+  return h('button', { type: 'button', class: 'src-tag', title: `${s.fileName || 'document'}${s.printed ? ` — as printed: “${s.printed}”` : ''}`,
+    onclick: (e) => { e.preventDefault(); showSource(prof, key); } },
+  `📄 ${[s.date ? fmtDate(s.date) : null, s.page ? `p. ${s.page}` : null, s.fileName || 'document'].filter(Boolean).join(' · ')}`);
+}
+
+function sourceText(prof, s) {
+  if (s.kind === 'report') return state.reports.find((r) => r.id === s.id)?.rawText ?? null;
+  if (s.kind === 'document') return (prof.documents || []).find((x) => x.id === s.id)?.rawText ?? null;
+  return null;
+}
+
+/** Document text with the cited line highlighted. */
+function highlightedText(text, printed) {
+  const pre = h('div', { class: 'raw-text' });
+  const norm = (x) => x.replace(/\s+/g, ' ').trim().toLowerCase();
+  const probe = printed ? norm(printed).slice(0, 28) : '';
+  let marked = null;
+  for (const line of String(text).split('\n')) {
+    if (!marked && probe && norm(line).includes(probe)) { marked = h('mark', {}, line); pre.append(marked, '\n'); } else pre.append(line + '\n');
+  }
+  if (marked) requestAnimationFrame(() => marked.scrollIntoView({ block: 'center' }));
+  return pre;
+}
+
+function openModal(...content) {
+  closeModal();
+  const box = h('div', { class: 'modal card' }, ...content);
+  const backdrop = h('div', { class: 'modal-backdrop', onclick: (ev) => { if (ev.target === backdrop) closeModal(); } },
+    h('div', { class: 'modal-wrap' }, h('button', { class: 'btn small modal-close', onclick: closeModal }, '✕ Close'), box));
+  document.body.append(backdrop);
+}
+
+function showSource(prof, key) {
+  const s = prof.sources?.[key];
+  if (!s) return;
+  const text = sourceText(prof, s);
+  const report = s.kind === 'report' ? state.reports.find((r) => r.id === s.id) : null;
+  openModal(
+    h('h2', { style: { marginTop: 0 } }, `Source: ${FIELD[key]?.label || { sbp: 'Systolic BP', dbp: 'Diastolic BP' }[key] || key}`),
+    h('p', {}, h('b', {}, s.fileName || 'Document'), s.date ? ` · dated ${fmtDate(s.date)}` : '', s.page ? ` · page ${s.page}` : '',
+      h('span', { class: 'muted' }, s.kind === 'report' ? ' · lab report' : ' · clinical document')),
+    s.printed ? h('p', {}, 'As printed: ', h('span', { class: 'printed' }, `“${s.printed}”`)) : null,
+    report ? h('p', {}, h('button', { class: 'btn small', onclick: () => { closeModal(); state.report = report; state.activePid = report.pid; setView('dashboard'); } }, 'Open this report →')) : null,
+    text ? highlightedText(text, s.printed) : h('p', { class: 'muted' }, 'The source document is no longer saved, so its text cannot be shown.'));
+}
+
+function showDocument(doc) {
+  openModal(h('h2', { style: { marginTop: 0 } }, doc.fileName), h('p', { class: 'muted' }, `Dated ${fmtDate(doc.date)} · ${doc.engine || ''}`), highlightedText(doc.rawText || '', ''));
 }
 
 // ------------------------------------------------------------------ dashboard
@@ -1701,13 +1855,17 @@ async function newPatientProfile() {
 function patientPanel(p) {
   const f = structuredClone(p);
   f.conditions ||= {};
+  f.record ||= {};
+  f.sources ||= {};
   const { reps } = patientStats(p.id);
+  // A value changed here is the user's own: it replaces the document reference with "entered by hand".
+  const mark = (key) => { f.sources[key] = manualSource(); };
   const inp = (key, type = 'text', attrs = {}) => h('input', { type, value: f[key] ?? '', ...attrs,
-    oninput: (e) => { f[key] = type === 'number' ? (e.target.value === '' ? null : +e.target.value) : e.target.value; } });
-  const sel = (key, options) => h('select', { onchange: (e) => { f[key] = e.target.value; } },
+    oninput: (e) => { f[key] = type === 'number' ? (e.target.value === '' ? null : +e.target.value) : e.target.value; mark(key); } });
+  const sel = (key, options) => h('select', { onchange: (e) => { f[key] = e.target.value; mark(key); } },
     options.map(([v, l]) => h('option', { value: v, selected: (f[key] || '') === v }, l)));
-  const area = (key, ph) => h('textarea', { rows: 2, placeholder: ph, oninput: (e) => { f[key] = e.target.value; } }, f[key] || '');
-  const field = (label, el) => h('label', {}, label, el);
+  const area = (key, ph) => h('textarea', { rows: 2, placeholder: ph, oninput: (e) => { f[key] = e.target.value; mark(key); } }, f[key] || '');
+  const field = (label, el, key) => h('label', {}, label, el, key ? sourceTag(p, key) : null);
   const bmi = p.heightCm && p.weightKg ? (p.weightKg / (p.heightCm / 100) ** 2).toFixed(1) : null;
 
   const save = async () => {
@@ -1741,14 +1899,14 @@ function patientPanel(p) {
       field('Address', area('address', 'Optional')),
       h('h3', { class: 'mt' }, 'Body & vitals'),
       h('div', { class: 'form-grid' },
-        field('Height (cm)', inp('heightCm', 'number', { step: 'any' })),
-        field('Weight (kg)', inp('weightKg', 'number', { step: 'any' })),
+        field('Height (cm)', inp('heightCm', 'number', { step: 'any' }), 'heightCm'),
+        field('Weight (kg)', inp('weightKg', 'number', { step: 'any' }), 'weightKg'),
         field('BMI', h('input', { type: 'text', disabled: true, value: bmi ? `${bmi} kg/m²` : '—' })),
         field('Last measured', h('input', { type: 'text', disabled: true, value: p.measuredOn ? fmtDate(p.measuredOn) : '—' })),
-        field('Systolic BP (mmHg)', inp('sbp', 'number')),
-        field('Diastolic BP (mmHg)', inp('dbp', 'number')),
-        field('Smoking', sel('smoking', [['', '—'], ['never', 'Never'], ['former', 'Former'], ['current', 'Current']])),
-        field('Alcohol', sel('alcohol', [['', '—'], ['none', 'None'], ['occasional', 'Occasional'], ['regular', 'Regular']]))),
+        field('Systolic BP (mmHg)', inp('sbp', 'number'), 'sbp'),
+        field('Diastolic BP (mmHg)', inp('dbp', 'number'), 'dbp'),
+        field('Smoking', sel('smoking', [['', '—'], ['never', 'Never'], ['former', 'Former'], ['current', 'Current']]), 'smoking'),
+        field('Alcohol', sel('alcohol', [['', '—'], ['none', 'None'], ['occasional', 'Occasional'], ['regular', 'Regular']]), 'alcohol')),
       h('h3', { class: 'mt' }, 'Medical history'),
       h('div', { class: 'cond-grid' },
         CONDITIONS.map(([k, label]) => h('label', { class: 'row small', style: { gap: '6px' } },
@@ -1758,10 +1916,14 @@ function patientPanel(p) {
       h('div', { class: 'form-grid', style: { gridTemplateColumns: '1fr 1fr' } },
         field('Other conditions', area('otherConditions', 'e.g. asthma, PCOS')),
         field('Current medicines & supplements', area('medications', 'Name, dose, how often')),
-        field('Allergies', area('allergies', 'Medicines, foods…')),
-        field('Family history', area('familyHistory', 'e.g. father — heart attack at 55'))),
+        field('Allergies', area('allergies', 'Medicines, foods…'), 'allergies'),
+        field('Family history', area('familyHistory', 'e.g. father — heart attack at 55'), 'familyHistory')),
       field('Notes', area('notes', 'Anything else to remember for consultations')),
+      h('h3', { class: 'mt' }, 'Clinical record'),
+      h('p', { class: 'small muted', style: { marginTop: 0 } }, 'History, complications and examination findings. Details read from an ingested document (for example a diabetes case record) are filled in automatically, each with a link to the document and line it came from. Values you type here are kept as your own.'),
+      recordSections(f, p),
       h('p', { class: 'small muted' }, 'Used by the analysis: sex, date of birth, height and weight fill gaps in reports (eGFR, BMI, FIB-4…); known diabetes feeds the fatty-liver scores; blood pressure, BP medicine and smoking pre-fill the ASCVD heart-risk calculator. Stored only on this computer.')),
+    documentsCard(p),
 
     h('div', { class: 'card mt' },
       h('div', { class: 'row mb' }, h('h2', { style: { margin: 0 } }, `Reports (${reps.length})`), h('span', { class: 'spacer' }),
@@ -1779,6 +1941,52 @@ function patientPanel(p) {
         } }, 'Merge into this patient') : null,
         h('span', { class: 'spacer' }),
         h('button', { class: 'btn small danger', onclick: () => deletePatientFlow(p, reps) }, 'Delete patient…'))));
+}
+
+
+/** Collapsible clinical-record sections on the profile form. */
+function recordSections(f, p) {
+  const shownElsewhere = new Set(['heightCm', 'weightKg', 'familyHistory', 'allergies', 'bpSitting']);
+  const dv = derived(p);
+  const extra = {
+    history: dv.diabetesDuration != null ? `Diabetes for about ${dv.diabetesDuration} year(s).` : '',
+    lifestyle: dv.packYears != null ? `About ${dv.packYears} pack-years of smoking.` : '',
+    general: [dv.whr != null ? `Waist–hip ratio ${dv.whr}.` : '', dv.posturalDrop != null ? `Systolic BP supine minus sitting: ${dv.posturalDrop} mmHg.` : ''].filter(Boolean).join(' '),
+  };
+  return SECTIONS.map(([sec, title]) => {
+    const fields = FIELDS.filter((x) => x.section === sec && !shownElsewhere.has(x.key));
+    const filled = fields.filter((x) => f.record[x.key] != null && f.record[x.key] !== '').length;
+    const input = (fd) => {
+      const set = (v) => { if (v === '' || v == null) delete f.record[fd.key]; else f.record[fd.key] = v; f.sources[fd.key] = manualSource(); };
+      const opts = fd.type === 'yesno' ? [['yes', 'Yes'], ['no', 'No']] : fd.type === 'presence' ? [['present', 'Present'], ['absent', 'Absent']] : fd.options;
+      if (opts) return h('select', { onchange: (e) => set(e.target.value) }, h('option', { value: '' }, '—'), opts.map(([v, l]) => h('option', { value: v, selected: f.record[fd.key] === v }, l)));
+      const num = fd.type === 'number' || fd.type === 'year';
+      return h('input', { type: num ? 'number' : 'text', step: 'any', value: f.record[fd.key] ?? '', placeholder: fd.type === 'bp' ? 'e.g. 130/80' : '',
+        oninput: (e) => set(num ? (e.target.value === '' ? null : +e.target.value) : e.target.value) });
+    };
+    return h('details', { class: 'rec-sec', open: filled > 0 },
+      h('summary', {}, title, h('span', { class: 'small muted' }, ` · ${filled} of ${fields.length} filled`)),
+      h('div', { class: 'form-grid' }, fields.map((fd) => h('label', {}, fd.label, input(fd), sourceTag(p, fd.key)))),
+      extra[sec] ? h('p', { class: 'small muted', style: { margin: '6px 0 0' } }, extra[sec]) : null);
+  });
+}
+
+/** Clinical documents (with no lab tests) whose details were saved to this profile. */
+function documentsCard(p) {
+  const docs = [...(p.documents || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  if (!docs.length) return null;
+  return h('div', { class: 'card mt' }, h('h2', {}, `Clinical documents (${docs.length})`),
+    h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Documents without lab tests, such as case records, whose details were saved to this profile. Profile values link back to them.'),
+    h('table', {}, h('tbody', {}, docs.map((doc) => h('tr', {},
+      h('td', {}, fmtDate(doc.date)), h('td', {}, doc.fileName),
+      h('td', { class: 'small muted' }, `${Object.values(p.sources || {}).filter((s) => s.id === doc.id).length} detail(s)`),
+      h('td', { style: { textAlign: 'right', whiteSpace: 'nowrap' } },
+        h('button', { class: 'btn small', onclick: () => showDocument(doc) }, 'View'), ' ',
+        h('button', { class: 'btn small danger', onclick: async () => {
+          if (!confirm(`Remove “${doc.fileName}” from this profile? The details it filled in stay, but their link to the document will no longer open it.`)) return;
+          await call(api.savePatient({ ...p, documents: (p.documents || []).filter((x) => x.id !== doc.id) }));
+          await reloadReports(); render();
+        } }, 'Remove')))))));
 }
 
 /** Reports saved before the date-of-birth fix may carry the DOB as their date: suggest the real one. */
@@ -1933,7 +2141,7 @@ async function exportPdf() {
   btn.disabled = true;
   try {
     const chartImg = renderStatusChartImage(counts(r.rows));
-    const html = buildExportHtml({ ...r, patient: effectivePatient(r.patient, profileOf(r.pid)) }, { translation: currentTranslation(), narrative: r.narrative, lang: state.lang, langName: langName(state.lang), chartImg, history: mergeByDate(sameGroup(r)) });
+    const html = buildExportHtml({ ...r, patient: effectivePatient(r.patient, profileOf(r.pid)) }, { translation: currentTranslation(), narrative: r.narrative, lang: state.lang, langName: langName(state.lang), chartImg, history: mergeByDate(sameGroup(r)), profile: profileOf(r.pid) });
     const safeName = (r.patient.name || 'patient').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
     const out = await call(api.exportPdf(html, `RADHA-${safeName}-${r.patient.date || 'report'}.pdf`));
     if (out) { toast(`Saved ${out.split(/[\\/]/).pop()}`); api.showItem(out); }

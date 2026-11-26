@@ -119,6 +119,12 @@ The **Patients** tab keeps one profile per person:
 
 When a report is verified, it is matched to an existing profile by lab ID or name, or a new profile is created. Profile data fills gaps in reports (sex, DOB → age, height/weight) and pre-fills calculator inputs (blood pressure, BP medicine and smoking for ASCVD; known diabetes for the fatty-liver scores). Reports saved before profiles existed are linked automatically by name.
 
+### Clinical record (filled from documents, with references)
+
+The profile also holds a clinical record modelled on an outpatient diabetes case record: type and year of diagnosis, associated diseases, surgeries, smoking/alcohol/tobacco (amount and years), complications (retinopathy, nephropathy, neuropathy, stroke, heart disease, PVD, amputation), admissions and DKA, immunisation, and examination findings (pulse, sitting and supine BP, ABI, waist and hip, mood, general signs, a ten-point foot examination with pulses, skin, heart, abdomen and nervous system).
+
+Any ingested document is read for these details (`src/shared/caseRecord.js`). The Verify screen lists each one with the exact line it was read from and the page, when the document prints page numbers. Ticked details are saved to the profile, and every saved value keeps a link to its source: click it to open the document text with that line highlighted. A document with no lab tests, such as a case record, can be saved straight to the profile. Values typed in by hand, or taken from a newer document, are not replaced unless you tick them. Blank forms give no values: option lists such as "Yes/No" are never read as answers. Blood pressure, height, weight, smoking and known conditions from the record feed the calculators and analysis, and the record is included in the PDF export.
+
 ## AI narrative providers
 
 Settings → **AI providers** chooses who writes the optional plain-language summary:

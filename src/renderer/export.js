@@ -1,6 +1,7 @@
 // Builds the standalone HTML that the main process prints to PDF.
 import { PANELS, fmtRange } from '../shared/biomarkers.js';
 import { RTL } from './translate.js';
+import { SECTIONS, FIELDS, getValue, displayValue, derived } from '../shared/caseRecord.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (v) => (v == null || !Number.isFinite(v) ? '—' : String(Math.abs(v) >= 100 ? Math.round(v * 10) / 10 : Math.round(v * 100) / 100));
@@ -41,7 +42,23 @@ function questionsHtml(questions) {
   return topic === null ? '' : html + '</ol>';
 }
 
-export function buildExportHtml(report, { translation, narrative, lang, langName, chartImg, history = [] }) {
+/** Filled clinical-record details of the patient profile, grouped by section, each with its source. */
+function clinicalRecordHtml(profile) {
+  if (!profile) return '';
+  const fmtSrc = (s) => (!s ? '' : s.kind === 'manual' ? 'entered by hand' : `${s.fileName || 'document'}${s.date ? `, ${s.date}` : ''}${s.page ? `, p. ${s.page}` : ''}`);
+  const groups = SECTIONS.map(([sec, title]) => {
+    const items = FIELDS.filter((f) => f.section === sec).map((f) => [f, getValue(profile, f.key)]).filter(([, v]) => v != null && v !== '');
+    if (!items.length) return '';
+    return `<tr><th colspan="3">${esc(title)}</th></tr>` + items.map(([f, v]) =>
+      `<tr><td>${esc(f.label)}</td><td><b>${esc(displayValue(f.key, v))}</b></td><td class="ref">${esc(fmtSrc(profile.sources?.[f.key]))}</td></tr>`).join('');
+  }).join('');
+  if (!groups) return '';
+  const dv = derived(profile);
+  const notes = [dv.diabetesDuration != null ? `Diabetes for about ${dv.diabetesDuration} year(s)` : '', dv.whr != null ? `waist–hip ratio ${dv.whr}` : '', dv.packYears != null ? `${dv.packYears} pack-years` : ''].filter(Boolean).join(' · ');
+  return `<h2>Clinical record (from the patient profile)</h2>${notes ? `<p>${esc(notes)}</p>` : ''}<table class="rec"><tbody>${groups}</tbody></table>`;
+}
+
+export function buildExportHtml(report, { translation, narrative, lang, langName, chartImg, history = [], profile = null }) {
   const p = report.patient;
   const a = translation?.analysis || report.analysis;
   const calcT = (id) => translation?.calc?.find((c) => c.id === id);
@@ -117,6 +134,7 @@ export function buildExportHtml(report, { translation, narrative, lang, langName
   .ev { color: #5d6878; font-size: 9.5px; } .note { color: #5d6878; font-style: italic; } .tx { direction: ${dir}; }
   .qt { font-size: 11px; margin: 8px 0 2px; color: #233247; } ol { margin: 2px 0 4px; padding-left: 20px; }
   .narr { white-space: pre-wrap; background: #f5f6f8; padding: 8px; border-radius: 6px; }
+    table.rec th { text-align: left; background: #eef3f2; font-size: 11px; } table.rec td { font-size: 11px; }
   </style></head><body>
   <header><div class="logo"><div class="mark">R</div><div><div class="brand">RADHA</div><div class="sub">Report Analysis &amp; Deterministic Health Assistant</div></div></div>
   <div style="text-align:right"><h1>Lab Report Summary</h1><div class="sub">Generated ${esc(new Date().toLocaleString())}</div></div></header>
@@ -130,6 +148,7 @@ export function buildExportHtml(report, { translation, narrative, lang, langName
     </div>
     <div>${chartImg ? `<img src="${chartImg}" style="width:100%">` : ''}</div>
   </div>
+  ${clinicalRecordHtml(profile)}
   <div class="tx">
   <h2>Clinical analysis &amp; action plan</h2>${translatedNote}
   <p><b>${esc(a.headline)}</b><br>${esc(a.summary)}</p>

@@ -90,6 +90,14 @@ export async function runSmoke(win, outDir) {
     for (let i = 0; i < 10; i++) {
       // Reports without a printed date: use a placeholder so the run can continue.
       await js(`(() => { const d = document.querySelector('input[type=date]'); if (d && !d.value) { d.value = '2026-10-14'; d.dispatchEvent(new Event('input')); } })()`);
+      // A document with patient details but no lab tests (the demo case record) goes to the profile.
+      const facts = await js(`document.querySelectorAll('.facts-table tbody tr').length`);
+      if (facts && !(await js(`document.querySelectorAll('.verify-table tbody tr td input[type=checkbox]').length`))) {
+        await shot('02a-case-record');
+        step(`case record: ${facts} details found, ${await js(`document.querySelectorAll('.facts-table tbody input[type=checkbox]:checked').length`)} ticked`);
+        await click('Save details to patient profile'); await sleep(900);
+        continue;
+      }
       const more = await click('Confirm & verify next');
       if (!more) { step('final confirm: ' + (await click('Confirm & analyse'))); break; }
       step('confirmed one report');
@@ -113,6 +121,15 @@ export async function runSmoke(win, outDir) {
     await js(`(() => { const i = document.querySelector('#view input[type=text]'); i.value = 'meld'; i.dispatchEvent(new Event('input')); document.querySelector('.lib-item')?.click(); })()`);
     await sleep(1200); await shot('05e-library');
     step('library: ' + (await js(`document.querySelector('#view .row.mb + .row.mb')?.innerText`)));
+    await nav('patients'); await sleep(900);
+    step('profile: ' + (await js(`document.querySelectorAll('.patient-form .src-tag').length`)) + ' values with a source link; sections ' +
+      (await js(`[...document.querySelectorAll('.rec-sec > summary')].map(s => s.innerText.replace(/\\s+/g, ' ')).join(' | ')`)));
+    step('profile vitals: ' + (await js(`[...document.querySelectorAll('.patient-form label')].filter(l => /^(Systolic|Diastolic|Smoking|Height|Weight)/.test(l.textContent)).map(l => l.querySelector('input,select').value).join(' / ')`)));
+    await js(`document.querySelector('.rec-sec')?.scrollIntoView()`); await shot('05f-profile-record');
+    await js(`[...document.querySelectorAll('.patient-form .src-tag')].find(b => b.tagName === 'BUTTON' && b.closest('label')?.textContent.startsWith('Systolic'))?.click()`);
+    await sleep(900); await shot('05g-profile-source');
+    step('source modal: ' + (await js(`(document.querySelector('.modal')?.innerText || 'none').split('\\n').slice(0, 3).join(' | ')`)) + ' | highlighted: ' + (await js(`document.querySelector('.modal mark')?.textContent || 'none'`)));
+    await js(`document.querySelector('.modal-close')?.click()`);
     await nav('analysis'); await shot('06-analysis');
     step('observations: ' + (await js(`document.querySelectorAll('.obs').length`)));
     step('doctor questions: ' + (await js(`document.querySelectorAll('.q-group li').length + ' in ' + document.querySelectorAll('.q-group').length + ' groups'`)));

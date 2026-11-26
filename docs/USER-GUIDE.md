@@ -219,6 +219,14 @@ Each person gets one profile.
 
 The profile also fills gaps in reports (age from date of birth, height and weight for BMI and eGFR) and pre-fills calculator inputs: blood pressure, BP medicine and smoking for ASCVD.
 
+**Clinical record.** Below the medical history, the profile has seven sections taken from an outpatient diabetes case record: diabetes and medical history; smoking, alcohol and tobacco; diabetes complications; hospital admissions and immunisation; and examination findings (vitals and general, feet, skin and systems). You can fill them in by hand, or let RADHA fill them from a document:
+
+1. Ingest the document (for example a typed or scanned case record) like any report.
+2. On the Verify screen, **Patient details found in this document** lists each detail with the line it was read from, and the page when the document prints page numbers. Check each value, correct it if needed, and untick anything you don't want saved.
+3. Press **Confirm** (or **Save details to patient profile** for a document without lab tests).
+
+Each value filled this way shows a small link with its date, page and file name. Click it to see the document text with that line highlighted. Values you type yourself are marked *entered by hand* and are not replaced by a document unless you tick them on the Verify screen. Documents without lab tests are listed under **Clinical documents** on the profile. The demo includes a synthetic case record to try this.
+
 | Profile | Reports & data tools |
 |---|---|
 | ![Patient profile](images/14-patients.png) | ![Patient reports](images/14b-patient-reports.png) |

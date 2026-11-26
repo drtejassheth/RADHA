@@ -152,6 +152,12 @@ export class Store {
     for (const r of this.data.reports) if (r.pid === fromId) r.pid = intoId;
     into.labIds = [...new Set([...(into.labIds || []), ...(from.labIds || [])])];
     for (const k of Object.keys(from)) if ((into[k] == null || into[k] === '') && from[k] != null && from[k] !== '') into[k] = from[k];
+    // Clinical record: keep the target's values, add what only the duplicate had (with their document references).
+    into.record = { ...(from.record || {}), ...(into.record || {}) };
+    const sources = { ...(into.sources || {}) };
+    for (const [k, v] of Object.entries(from.sources || {})) if (!sources[k] && into.record[k] === from.record?.[k]) sources[k] = v;
+    into.sources = sources;
+    into.documents = [...(into.documents || []), ...(from.documents || []).filter((d) => !(into.documents || []).some((x) => x.id === d.id))];
     into.updatedAt = new Date().toISOString();
     this.data.patients = this.data.patients.filter((p) => p.id !== fromId);
     await this.save();
@@ -230,7 +236,9 @@ function newPatient(fields) {
     heightCm: null, weightKg: null, sbp: null, dbp: null,
     conditions: { diabetes: false, hypertension: false, ckd: false, liver: false, heart: false, thyroid: false },
     bpTreated: false, otherConditions: '', medications: '', allergies: '', familyHistory: '',
-    smoking: '', alcohol: '', labIds: [], notes: '', createdAt: now, updatedAt: now,
+    smoking: '', alcohol: '', labIds: [], notes: '',
+    record: {}, sources: {}, documents: [], // clinical record, where each value came from, documents without lab tests
+    createdAt: now, updatedAt: now,
     ...fields,
   };
 }
