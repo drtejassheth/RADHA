@@ -21,6 +21,8 @@ const DEFAULT_SETTINGS = {
   myMemoryEmail: '',
   libreUrl: '',
   engineOptions: {},   // per local engine tuning: { common: {...}, easyocr: {...}, ... }
+  autoUpdateCheck: true, // look for a newer release on GitHub when RADHA starts
+  updateSkipVersion: '', // a version the user chose to skip
 };
 
 export class Store {

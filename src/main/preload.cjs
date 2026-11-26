@@ -42,6 +42,17 @@ contextBridge.exposeInMainWorld('radha', {
 
   exportPdf: (html, suggestedName) => invoke('export:pdf', { html, suggestedName }),
   showItem: (p) => invoke('shell:showItem', p),
+  openExternal: (url) => invoke('shell:openExternal', url),
+
+  appInfo: () => invoke('app:info'),
+  checkUpdate: () => invoke('update:check'),
+  downloadUpdate: (asset) => invoke('update:download', asset),
+  installUpdate: (file) => invoke('update:install', file),
+  onUpdateProgress: (cb) => {
+    const fn = (_e, f) => cb(f);
+    ipcRenderer.on('update:progress', fn);
+    return () => ipcRenderer.removeListener('update:progress', fn);
+  },
 
   libraryIndex: () => invoke('library:index'),
   libraryGet: (id) => invoke('library:get', id),

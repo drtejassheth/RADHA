@@ -939,6 +939,114 @@ function showDocument(doc) {
   openModal(h('h2', { style: { marginTop: 0 } }, doc.fileName), h('p', { class: 'muted' }, `Dated ${fmtDate(doc.date)} · ${doc.engine || ''}`), highlightedText(doc.rawText || '', ''));
 }
 
+
+// ------------------------------------------------------------------ sponsor & updates
+const SPONSOR_LINKS = [
+  { label: 'GitHub Sponsors', note: 'Monthly or one-time support through GitHub', url: 'https://github.com/sponsors/drtejassheth' },
+  { label: 'Buy Me a Coffee', note: 'A one-time thank-you', url: 'https://buymeacoffee.com/drtejassheth' },
+];
+
+function openSponsor() {
+  openModal(
+    h('h2', { style: { marginTop: 0 } }, '♥ Sponsor'),
+    h('p', {}, 'RADHA is free, runs on your own computer and keeps your reports private. If it helps you or your patients, you can support its development. Sponsorship is optional and does not unlock anything: every feature stays free for everyone.'),
+    h('div', { class: 'sponsor-grid' }, SPONSOR_LINKS.map((l) => h('button', { class: 'sponsor-card', onclick: () => api.openExternal(l.url) },
+      h('b', {}, l.label), h('span', { class: 'small muted' }, l.note), h('span', { class: 'small', style: { color: 'var(--accent)' } }, 'Opens in your browser ↗')))),
+    h('p', { class: 'small muted' }, 'Thank you!'));
+}
+
+const upd = { status: 'idle', info: null, progress: 0, error: '', file: null, dismissed: false };
+
+/** Look for a newer release. `manual` shows the result even when there is nothing new. */
+async function checkUpdates(manual = false) {
+  if (upd.status === 'downloading' || upd.status === 'installing') return;
+  upd.status = 'checking'; upd.error = '';
+  if (state.view === 'settings') render();
+  try {
+    upd.info = await call(api.checkUpdate());
+    upd.status = upd.info.available ? 'available' : 'none';
+    if (upd.info.available && !manual && state.settings.updateSkipVersion === upd.info.version) upd.dismissed = true;
+    else if (upd.info.available) upd.dismissed = false;
+    if (manual && !upd.info.available) toast(`RADHA ${upd.info.current} is the latest version.`);
+  } catch (err) {
+    upd.status = 'error'; upd.error = err.message;
+    if (manual) toast('Could not check for updates: ' + err.message, true);
+  }
+  renderUpdateBar();
+  if (state.view === 'settings') render();
+}
+
+async function startUpdate() {
+  const a = upd.info?.asset;
+  if (!a) { api.openExternal(upd.info?.page || 'https://github.com/drtejassheth/RADHA/releases/latest'); return; }
+  upd.status = 'downloading'; upd.progress = 0; upd.error = ''; upd.dismissed = false;
+  renderUpdateBar();
+  const off = api.onUpdateProgress?.((f) => { upd.progress = f; renderUpdateBar(); });
+  try {
+    upd.file = await call(api.downloadUpdate(a));
+    upd.status = 'installing';
+    renderUpdateBar();
+    const res = await call(api.installUpdate(upd.file));
+    if (res?.mode === 'opened') {
+      upd.status = 'opened';
+      renderUpdateBar();
+    }
+  } catch (err) {
+    upd.status = 'error'; upd.error = err.message;
+    renderUpdateBar();
+  } finally { off?.(); }
+}
+
+function renderUpdateBar() {
+  const bar = $('#updateBar');
+  const i = upd.info;
+  // Downloading/installing always shows; an offer or a failed download can be put off with "Later".
+  const show = ['downloading', 'installing'].includes(upd.status) ||
+    (!upd.dismissed && (['available', 'opened'].includes(upd.status) || (upd.status === 'error' && i?.available)));
+  bar.hidden = !show;
+  if (!show) return;
+  const pct = Math.round((upd.progress || 0) * 100);
+  const later = h('button', { class: 'btn small', onclick: () => { upd.dismissed = true; renderUpdateBar(); } }, 'Later');
+  const notes = h('button', { class: 'btn small', onclick: () => api.openExternal(i.page) }, 'What’s new');
+  let content;
+  if (upd.status === 'available') {
+    content = [h('span', {}, h('b', {}, `RADHA ${i.version} is available`), ` — you have ${i.current}.`), h('span', { class: 'spacer' }), notes,
+      h('button', { class: 'btn small', onclick: async () => { upd.dismissed = true; renderUpdateBar(); state.settings = await call(api.setSettings({ updateSkipVersion: i.version })); } }, 'Skip this version'),
+      later, h('button', { class: 'btn small primary', onclick: startUpdate }, i.asset ? `Download & install (${fmtMB(i.asset.size / 1e6)})` : 'Open download page')];
+  } else if (upd.status === 'downloading') {
+    content = [h('span', {}, h('b', {}, `Downloading RADHA ${i.version}…`), ` ${pct}%`), h('div', { class: 'update-progress' }, h('div', { style: { width: `${pct}%` } }))];
+  } else if (upd.status === 'installing') {
+    content = [h('span', {}, h('b', {}, `Installing RADHA ${i.version}…`), ' RADHA will restart in a moment. Your reports and settings are kept.')];
+  } else if (upd.status === 'opened') {
+    content = [h('span', {}, h('b', {}, `RADHA ${i.version} is downloaded.`), state.appInfo?.platform === 'win32' ? ' Follow the installer to finish.' : ' The installer window is open: drag RADHA into Applications (replace the old copy), then reopen RADHA.'), h('span', { class: 'spacer' }), later];
+  } else {
+    content = [h('span', {}, h('b', {}, 'Update failed: '), upd.error), h('span', { class: 'spacer' }), notes, later, h('button', { class: 'btn small primary', onclick: startUpdate }, 'Try again')];
+  }
+  bar.replaceChildren(...content);
+}
+
+function aboutCard() {
+  const s = state.settings;
+  const i = upd.info;
+  const statusText = { idle: 'Not checked yet.', checking: 'Checking…', none: `You have the latest version${i ? ` (checked ${new Date(i.checkedAt).toLocaleString()})` : ''}.`,
+    available: i ? `RADHA ${i.version} is available.` : '', downloading: `Downloading… ${Math.round(upd.progress * 100)}%`, installing: 'Installing…',
+    opened: 'Downloaded: finish in the installer window.', error: `Could not update: ${upd.error}` }[upd.status];
+  return h('div', { class: 'card' }, h('h2', {}, 'About & updates'),
+    h('p', { style: { marginTop: 0 } }, h('b', {}, `RADHA ${state.appInfo?.version || ''}`), h('span', { class: 'muted' }, ' · Report Analysis & Deterministic Health Assistant')),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn small', disabled: upd.status === 'checking' || upd.status === 'downloading', onclick: () => checkUpdates(true) }, 'Check for updates'),
+      upd.status === 'available' ? h('button', { class: 'btn small primary', onclick: startUpdate }, i.asset ? 'Download & install' : 'Open download page') : null,
+      i?.page ? h('button', { class: 'link small', onclick: () => api.openExternal(i.page) }, 'Release notes') : null),
+    h('p', { class: 'small muted' }, statusText),
+    h('label', { class: 'row small', style: { gap: '6px' } },
+      h('input', { type: 'checkbox', checked: s.autoUpdateCheck !== false, onchange: async (e) => { state.settings = await call(api.setSettings({ autoUpdateCheck: e.target.checked })); } }),
+      'Check for updates when RADHA starts'),
+    h('p', { class: 'small muted' }, 'Updates come from RADHA’s GitHub releases. RADHA downloads the installer for your computer, checks it against the release’s SHA-256 checksum, installs it and restarts. Only the release information is fetched: nothing about you or your reports is sent.'),
+    h('h3', { class: 'mt' }, '♥ Sponsor'),
+    h('p', { class: 'small muted', style: { marginTop: 0 } }, 'RADHA is free. If it helps you, you can support its development.'),
+    h('div', { class: 'row' }, SPONSOR_LINKS.map((l) => h('button', { class: 'btn small', onclick: () => api.openExternal(l.url) }, `${l.label} ↗`))));
+}
+
 // ------------------------------------------------------------------ dashboard
 function viewDashboard() {
   const r = state.report;
@@ -1710,6 +1818,7 @@ function viewSettings() {
 
   const eng = state.python?.engines || {};
   return h('div', { class: 'grid cols-2' },
+    aboutCard(),
     h('div', { class: 'card' }, h('h2', {}, 'Sarvam AI (online)'),
       h('div', { class: 'field' }, 'API subscription key', keyInput),
       h('p', { class: 'small muted' }, 'Stored encrypted with your operating system keychain. Used for online PDF parsing, and for translation / the AI narrative when Sarvam is chosen for them. Get a key at dashboard.sarvam.ai.'),
@@ -2167,6 +2276,7 @@ async function init() {
     await maybeTranslate();
   });
   $('#exportBtn').addEventListener('click', exportPdf);
+  $('#sponsorBtn').addEventListener('click', openSponsor);
 
   try { state.settings = await call(api.getSettings()); } catch (err) { toast(err.message, true); }
   state.engine = state.settings.defaultEngine || 'auto';
@@ -2185,6 +2295,9 @@ async function init() {
   refreshPython();
   ensureLibrary().then(() => { if (['calculators', 'library'].includes(state.view)) render(); }).catch(() => {});
   if (state.report && state.lang !== 'en-IN') maybeTranslate();
+  try { state.appInfo = await call(api.appInfo()); } catch { state.appInfo = null; }
+  // Installed copies look for a newer release a few seconds after starting (Settings can turn this off).
+  if (state.appInfo?.packaged && state.settings.autoUpdateCheck !== false) setTimeout(() => checkUpdates(false), 4000);
 }
 
 init();

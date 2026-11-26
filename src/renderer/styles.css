@@ -313,3 +313,15 @@ span.src-tag.muted:hover { text-decoration: none; }
 .facts-table td { vertical-align: top; }
 .facts-table tr.excluded td { opacity: 0.55; }
 .raw-text mark { background: #ffe58a; color: #1a2230; border-radius: 3px; padding: 0 2px; }
+
+/* Sponsor & updates */
+.sponsor-btn { display: block; width: 100%; margin-bottom: 8px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: #c2185b; font-weight: 600; font-size: 12.5px; cursor: pointer; text-align: center; }
+.sponsor-btn:hover { background: #fce4ec; border-color: #f8bbd0; }
+.sponsor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+.sponsor-card { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 14px; }
+.sponsor-card:hover { border-color: var(--accent); }
+.update-bar { margin: 12px 24px 0; padding: 10px 14px; border-radius: 8px; background: var(--accent-soft); color: var(--text); font-size: 13px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.update-progress { flex: 1; min-width: 160px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.update-progress > div { height: 100%; background: var(--accent); transition: width 0.2s; }
+@media (prefers-color-scheme: dark) { .sponsor-btn { color: #f48fb1; } .sponsor-btn:hover { background: rgba(244, 143, 177, 0.12); border-color: #f48fb1; } }
+.update-bar[hidden] { display: none; }

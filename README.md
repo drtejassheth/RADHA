@@ -6,6 +6,8 @@ An Electron desktop app that turns blood-test PDFs into a verified, structured c
 
 📖 **[Illustrated user guide](docs/USER-GUIDE.md)**: how to use RADHA, every feature with screenshots, and [how a report is generated](docs/USER-GUIDE.md#4-how-a-report-is-generated).
 
+🌐 **[Try the web demo on Hugging Face](https://huggingface.co/spaces/drtejassheth/RADHA)**: the same extraction, calculators and rules, running in your browser on synthetic reports (source in `space/`, assembled with `sh scripts/build-space.sh OUT_DIR`).
+
 📄 **[Research paper](docs/paper/RADHA-Research-Paper.md)**: design of RADHA and its evaluation on 300 synthetic reports.
 
 ⬇️ **[Download for macOS (Apple silicon) or Windows (x64)](../../releases/latest)** · 📄 Sample output: [English PDF](docs/sample/RADHA-sample-summary-english.pdf) · [Gujarati PDF](docs/sample/RADHA-sample-summary-gujarati.pdf)
@@ -145,6 +147,15 @@ Keys are encrypted with the macOS keychain. **Load models** lists what each prov
 
 - Local engines keep everything on the machine. Reports are stored in `radha-db.json` in the app's user-data folder.
 - The Sarvam parse engine uploads the PDF. The AI narrative and translations send only results and findings, never the patient's name or ID.
+- Update checks fetch only the latest release information from GitHub (Settings → About & updates can turn them off).
+
+## Updates
+
+RADHA looks for a newer GitHub release a few seconds after it starts. When there is one, a bar offers **Download & install**: RADHA downloads the installer for your computer, checks its size and SHA-256 against the release, installs it and restarts. On macOS it replaces the app from the DMG (if the app's folder is not writable, it opens the DMG for you to drag across); on Windows it runs the installer silently. **Settings → About & updates** has **Check for updates**, the on/off switch and **Skip this version**. The code is in `src/main/updater.js`.
+
+## Sponsor
+
+RADHA is free. The **♥ Sponsor** button (sidebar, and Settings → About & updates) links to [GitHub Sponsors](https://github.com/sponsors/drtejassheth) and [Buy Me a Coffee](https://buymeacoffee.com/drtejassheth). Sponsorship unlocks nothing; every feature stays free.
 
 ## Tests
 

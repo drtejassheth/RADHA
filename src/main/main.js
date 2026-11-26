@@ -12,6 +12,7 @@ import { TRANSLATORS, translateTexts } from './translators.js';
 import { Store } from './store.js';
 import { PROVIDERS, aiChat, aiListModels } from './aiProviders.js';
 import { EngineInstaller, engineList, estimate, managedPython, hasManagedPython, managedEnv } from './engines.js';
+import { checkForUpdate, downloadUpdate, installUpdate, cleanupAfterUpdate } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -205,6 +206,13 @@ function registerIpc() {
   }));
 
   ipcMain.handle('shell:showItem', wrap((p) => shell.showItemInFolder(p)));
+  ipcMain.handle('shell:openExternal', wrap((url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return true; }));
+
+  // Updates (see updater.js): check the latest GitHub release, download + verify, install and restart.
+  ipcMain.handle('app:info', wrap(() => ({ version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged })));
+  ipcMain.handle('update:check', wrap(() => checkForUpdate()));
+  ipcMain.handle('update:download', wrap((asset) => downloadUpdate(asset, (f) => mainWindow?.webContents.send('update:progress', f))));
+  ipcMain.handle('update:install', wrap((file) => installUpdate(file)));
 
   ipcMain.handle('library:index', wrap(async () => (await loadLibrary()).index));
   ipcMain.handle('library:get', wrap(async (id) => (await loadLibrary()).byId.get(id) || null));
@@ -241,6 +249,7 @@ app.whenReady().then(async () => {
   installer = new EngineInstaller(engineHome(), { onProgress: (p) => mainWindow?.webContents.send('engines:progress', p) });
   registerIpc();
   createWindow();
+  cleanupAfterUpdate().catch(() => {});
   if (process.env.RADHA_SMOKE) {
     // RADHA_SCRIPT swaps in another automation script (e.g. scripts/capture-docs.js for the guide's screenshots).
     const { runSmoke } = await import(path.resolve(ROOT, process.env.RADHA_SCRIPT || path.join('test', 'smoke.js')));
