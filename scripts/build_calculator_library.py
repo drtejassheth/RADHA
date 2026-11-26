@@ -3,10 +3,10 @@
 
     python3 scripts/build_calculator_library.py "/path/to/ALL CALCULATOR DATA"
 
-Merges the four sources into one de-duplicated catalog (src/data/calculator-library.json).
-Every descriptive field is kept (description, inputs, formula/equations, interpretation,
-evidence, notes, article, FAQs, references, codes) but the originating website is removed:
-no URLs, site names, site-specific access notes, authors/reviewers or ratings.
+Merges the four sources into one de-duplicated catalog (src/data/calculator-library.json),
+then applies library_policy.py: the websites' own prose (about, evidence, articles, FAQs,
+notes) is dropped, licensed instruments are excluded, and only functional content is kept
+(description, inputs, formula/equations, interpretation, results, references, codes).
 """
 import csv
 import html
@@ -16,6 +16,7 @@ import re
 import sys
 
 from calculator_scoring import annotate
+from library_policy import apply_policy
 
 csv.field_size_limit(10**9)
 
@@ -212,13 +213,13 @@ def main():
     dest = os.path.join(here, "..", "src", "data", "calculator-library.json")
     sources = [load_mdcalc(root), load_omni(root), load_ebm(root), load_medscape(root)]
     raw = sum(len(s) for s in sources)
-    lib = merge([e for s in sources for e in s])
+    lib, policy = apply_policy(merge([e for s in sources for e in s]))
     scored = annotate(lib)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(lib, f, ensure_ascii=False, separators=(",", ":"))
     leaks = sum(1 for m in lib if URL.search(json.dumps(m)) or SITE_WORDS.search(json.dumps(m)))
-    print(f"{raw} source records -> {len(lib)} unique calculators; {os.path.getsize(dest) / 1e6:.1f} MB; entries mentioning a source site: {leaks}; {scored} auto-scored")
+    print(f"{raw} source records -> {len(lib)} unique calculators; {os.path.getsize(dest) / 1e6:.1f} MB; entries mentioning a source site: {leaks}; {scored} auto-scored; {len(policy['licensed_removed'])} licensed instruments excluded")
 
 
 if __name__ == "__main__":

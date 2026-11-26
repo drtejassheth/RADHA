@@ -143,7 +143,7 @@ Every biomarker is listed, grouped by panel, with the result, unit, reference ra
 |---|---|
 | ![Calculators](images/05-calculators.png) | ![Calculator inputs](images/06-calculators-input.png) |
 
-**Calculator details and library.** **ⓘ Calculator details** opens the full write-up for a calculator: description, inputs, formula, interpretation, evidence and references. The **Calculator library** lets you search all 2,015 calculators.
+**Calculator details and library.** **ⓘ Calculator details** opens the details of a calculator: description, inputs, formula, interpretation and references. The **Calculator library** lets you search all 1,931 calculators.
 
 | Calculator details | Library |
 |---|---|

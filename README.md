@@ -69,7 +69,7 @@ To rebuild: `npm run dist` (macOS DMG). The Windows installer is built by the **
 
 ## Calculator library
 
-`src/data/calculator-library.json` holds 2,015 unique calculators, merged from the scraped calculator data. It keeps descriptions, inputs, formulas and equations, interpretation, evidence, notes, articles, FAQs, references, MeSH/LOINC/ICD codes and specialties. Source websites, URLs, site names and site credits are removed. To regenerate it:
+`src/data/calculator-library.json` holds 1,931 unique calculators. Each entry keeps only functional content: a short description, inputs, formulas and equations, interpretation bands, references, MeSH/LOINC/ICD codes and specialties. Long-form text written by other websites (about, evidence, articles, FAQs) is not included, and questionnaires whose rights holders require a licence for use in software (for example MoCA, PANSS, the COPD Assessment Test, the Epworth Sleepiness Scale, the Braden Scale and the Rome IV criteria) are excluded. The rules are in `scripts/library_policy.py`. To regenerate it:
 
 ```bash
 python3 scripts/build_calculator_library.py "/path/to/ALL CALCULATOR DATA"
