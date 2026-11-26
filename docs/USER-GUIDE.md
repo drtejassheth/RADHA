@@ -22,7 +22,13 @@
 
 1. Download the latest **`RADHA-…-arm64.dmg`** from the [Releases](../../../releases) page (Apple-silicon Macs).
 2. Open the DMG and drag **RADHA** into **Applications**.
-3. First launch only (the app is not code-signed): if macOS says RADHA can't be opened or is damaged, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. If that button doesn't appear, open Terminal and run `xattr -cr /Applications/RADHA.app`, then open RADHA again.
+3. First launch only (the app is not code-signed, so macOS quarantines it after download): if macOS says RADHA can't be opened or is damaged, open **Terminal** (Applications → Utilities), paste this command, press Return, and open RADHA again:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/RADHA.app
+   ```
+
+   It only removes the "downloaded from the internet" flag from RADHA. Alternatively, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
 4. Optional one-click helpers in the repository: **`Open RADHA.command`** and **`Close RADHA.command`**.
 
 **Optional extras**
@@ -324,7 +330,7 @@ Sample files: [English](sample/RADHA-sample-summary-english.pdf) · [Gujarati](s
 
 | Problem | What to do |
 |---|---|
-| "RADHA can't be opened" or "is damaged" on first launch | **System Settings → Privacy & Security → Open Anyway**, or run `xattr -cr /Applications/RADHA.app` in Terminal. The Mac build needs an Apple silicon Mac (M1 or later). |
+| "RADHA can't be opened" or "is damaged" on first launch | **System Settings → Privacy & Security → Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/RADHA.app` in Terminal. The Mac build needs an Apple silicon Mac (M1 or later). |
 | A value or unit was read wrongly | Correct it on the **Verify** screen; open a saved report with **Edit** from the **Patients** tab |
 | A report shows the date of birth as its date | **Patients** → that report → **Fix date** |
 | "Local engines unavailable" or "Not installed" | Click **Install** on the engine card (Ingest screen) or **Install essentials** |
