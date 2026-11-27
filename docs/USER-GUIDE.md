@@ -312,12 +312,30 @@ Sample files: [English](sample/RADHA-sample-summary-english.pdf) · [Gujarati](s
 |---|---|
 | ![AI providers](images/15-settings-ai.png) | ![Translation](images/16-settings-translation.png) |
 
+### App lock (4-digit PIN)
+
+To make RADHA ask for a PIN every time it opens, choose **Settings → 🔒 App lock → Set a PIN** and type 4 digits twice. Avoid easy ones like 1234 or your birth year.
+
+![RADHA's lock screen](images/30-lock-screen.png)
+
+- **Unlock** by typing the PIN on the keyboard or clicking the keypad.
+- **Lock any time** with **🔒 Lock** at the bottom of the sidebar, or **⌘⇧L** (Ctrl+Shift+L on Windows).
+- **Also lock** chooses whether RADHA also locks after some minutes away, and when the screen locks or the computer sleeps. It never locks by itself while a report is being read or is waiting on **Verify values**.
+- **Change PIN** and **Turn off** ask for the current PIN.
+- **Too many wrong PINs:** after 5 wrong tries RADHA makes you wait, starting at 30 seconds and doubling each time, up to 15 minutes.
+- **Forgot your PIN?** It can't be recovered. Quit RADHA, delete **app-lock.json** from `~/Library/Application Support/RADHA/`, and open RADHA again. Your reports and profiles are kept. **Forgot PIN?** on the lock screen shows the file.
+
+![App lock in Settings](images/31-settings-lock.png)
+
+The PIN keeps the RADHA window closed to other people using your computer. It does not encrypt the files on disk. For that, turn on FileVault (Mac) or BitLocker (Windows).
+
 ---
 
 ## 7. Privacy and safety
 
 - **Local storage:** patients, reports and settings are stored only on your computer, in `~/Library/Application Support/RADHA/radha-db.json`. **Backup all data** makes a copy.
 - **Encrypted keys:** API keys are encrypted with the macOS keychain.
+- **App lock:** an optional 4-digit PIN asked for when RADHA opens (Settings → App lock). Only a scrambled (hashed) form of the PIN is saved, never the PIN itself.
 - **What leaves your computer:**
   - Online parsing sends the PDF to Sarvam AI.
   - Translation and the AI narrative send only the results text, never the name or ID.

@@ -333,3 +333,33 @@ span.src-tag.muted:hover { text-decoration: none; }
 .share-opts label { gap: 8px; }
 .doctor-notes { border-left: 4px solid var(--accent); }
 .doctor-notes h2 { font-size: 15px; margin: 0 0 6px; }
+
+/* ---- app lock */
+.lock-btn { display: block; width: 100%; margin-bottom: 8px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 600; font-size: 12.5px; cursor: pointer; text-align: center; }
+.lock-btn:hover { background: var(--surface-2); }
+.lock-btn[hidden] { display: none; }
+body.locked > aside, body.locked > main { visibility: hidden; }
+.lock-screen { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: grid; place-items: center; padding: 24px; overflow: auto; }
+.lock-box { width: min(340px, 100%); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.lock-box h1 { font-size: 22px; margin: 10px 0 0; }
+.lock-box > p { margin: 0; }
+.lock-mark { width: 56px; height: 56px; font-size: 28px; border-radius: 14px; }
+.pin-dots { display: flex; gap: 16px; margin: 18px 0 6px; }
+.pin-dots span { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--muted); transition: background 0.1s, border-color 0.1s; }
+.pin-dots span.on { background: var(--accent); border-color: var(--accent); }
+.lock-msg { min-height: 2.6em; color: var(--crit); font-size: 13px; }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 68px); gap: 12px; margin-bottom: 14px; }
+.pin-key { height: 56px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 22px; cursor: pointer; }
+.pin-key:hover { background: var(--surface-2); }
+.pin-key:active { background: var(--accent-soft); }
+.lock-screen.waiting .pin-key { opacity: 0.4; cursor: not-allowed; }
+.lock-screen.shake .pin-dots { animation: pin-shake 0.35s; }
+@keyframes pin-shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+@media (prefers-reduced-motion: reduce) { .lock-screen.shake .pin-dots { animation: none; } }
+.lock-forgot { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; font-size: 12.5px; text-align: left; }
+.lock-forgot p { margin: 0 0 8px; }
+.lock-ver { margin-top: 18px !important; }
+.pin-input { font-size: 22px; letter-spacing: 0.5em; width: 9ch; padding: 6px 10px; text-align: center; }
+.modal-wrap.narrow { width: min(420px, 100%); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--surface-2); }

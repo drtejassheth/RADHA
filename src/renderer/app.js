@@ -35,6 +35,7 @@ const state = {
   activePid: null,      // profile shown in the top bar / used for manual entry
   patientSel: null,     // profile open on the Patients tab
   patientSearch: '',
+  lock: null,           // app lock status from the main process: { enabled, locked, autoLockMinutes, … }
 };
 const charts = [];
 
@@ -2028,6 +2029,7 @@ function viewSettings() {
   const eng = state.python?.engines || {};
   return h('div', { class: 'grid cols-2' },
     aboutCard(),
+    appLockCard(),
     h('div', { class: 'card' }, h('h2', {}, 'Sarvam AI (online)'),
       h('div', { class: 'field' }, 'API subscription key', keyInput),
       h('p', { class: 'small muted' }, 'Stored encrypted with your operating system keychain. Used for online PDF parsing, and for translation / the AI narrative when Sarvam is chosen for them. Get a key at dashboard.sarvam.ai.'),
@@ -2469,6 +2471,195 @@ async function exportPdf() {
   btn.disabled = false;
 }
 
+// ------------------------------------------------------------------ app lock (4-digit PIN; enforced in src/main/appLock.js)
+const PIN_LEN = 4;
+const AUTO_LOCK = [[0, 'Only when RADHA opens'], [1, 'After 1 minute away'], [5, 'After 5 minutes away'], [15, 'After 15 minutes away'], [30, 'After 30 minutes away'], [60, 'After 1 hour away']];
+let lastActivity = Date.now();
+
+const fmtWait = (s) => (s >= 60 ? `${Math.ceil(s / 60)} min` : `${s} s`);
+function pinError(res) {
+  if (res.waitSeconds > 0) return `Too many wrong PINs. Try again in ${fmtWait(res.waitSeconds)}.`;
+  if (res.triesLeft != null && res.triesLeft <= 2) return `Wrong PIN. ${res.triesLeft} ${res.triesLeft === 1 ? 'try' : 'tries'} left before RADHA makes you wait.`;
+  return 'Wrong PIN. Try again.';
+}
+
+/** Full-window lock screen. Resolves once the right PIN is entered; nothing else is loaded until then. */
+function lockScreen(status) {
+  return new Promise((resolve) => {
+    document.body.classList.add('locked');
+    let pin = '';
+    let busy = false;
+    let timer;
+    const dots = h('div', { class: 'pin-dots', 'aria-hidden': 'true' });
+    const live = h('span', { class: 'sr-only', 'aria-live': 'polite' });
+    const msg = h('p', { class: 'lock-msg', role: 'alert' });
+    const press = (d) => {
+      if (busy || screen.classList.contains('waiting')) return;
+      if (d === 'del') pin = pin.slice(0, -1);
+      else if (pin.length < PIN_LEN) pin += d;
+      draw();
+      if (pin.length === PIN_LEN) submit();
+    };
+    const key = (label, d, aria) => h('button', { class: 'pin-key', type: 'button', 'aria-label': aria || label, onclick: () => press(d) }, label);
+    const forgot = h('div', { class: 'lock-forgot', hidden: true },
+      h('p', {}, 'The PIN can’t be shown or recovered. To turn the lock off, quit RADHA and delete the file ', h('b', {}, 'app-lock.json'),
+        ' from RADHA’s data folder, then open RADHA again. Your reports and profiles are not affected.'),
+      h('button', { class: 'btn small', type: 'button', onclick: () => api.showLockFile() }, 'Show the file'));
+    const screen = h('div', { class: 'lock-screen', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'RADHA is locked' },
+      h('div', { class: 'lock-box' },
+        h('div', { class: 'brand-mark lock-mark', 'aria-hidden': 'true' }, 'R'),
+        h('h1', {}, 'RADHA is locked'),
+        h('p', { class: 'muted' }, `Enter your ${PIN_LEN}-digit PIN`),
+        dots, live, msg,
+        h('div', { class: 'pin-pad' }, ...'123456789'.split('').map((d) => key(d, d)), h('span'), key('0', '0'), key('⌫', 'del', 'Delete last digit')),
+        h('button', { class: 'link small', type: 'button', onclick: () => { forgot.hidden = !forgot.hidden; } }, 'Forgot PIN?'),
+        forgot,
+        h('p', { class: 'small muted lock-ver' }, state.appInfo?.version ? `RADHA ${state.appInfo.version}` : '')));
+    function draw() {
+      dots.replaceChildren(...Array.from({ length: PIN_LEN }, (_, i) => h('span', { class: i < pin.length ? 'on' : '' })));
+      live.textContent = `${pin.length} of ${PIN_LEN} digits entered`;
+    }
+    function countdown(sec) {
+      clearInterval(timer);
+      let left = sec;
+      screen.classList.add('waiting');
+      const tick = () => {
+        if (left <= 0) { clearInterval(timer); screen.classList.remove('waiting'); msg.textContent = ''; return; }
+        msg.textContent = `Too many wrong PINs. Try again in ${fmtWait(left)}.`;
+        left -= 1;
+      };
+      tick();
+      timer = setInterval(tick, 1000);
+    }
+    async function submit() {
+      busy = true;
+      try {
+        const res = await call(api.unlock(pin));
+        if (res.ok) {
+          clearInterval(timer);
+          document.removeEventListener('keydown', onKey, true);
+          screen.remove();
+          document.body.classList.remove('locked');
+          state.lock = res;
+          resolve(res);
+          return;
+        }
+        pin = '';
+        draw();
+        screen.classList.remove('shake');
+        void screen.offsetWidth;
+        screen.classList.add('shake');
+        if (res.waitSeconds > 0) countdown(res.waitSeconds); else msg.textContent = pinError(res);
+      } catch (err) { pin = ''; draw(); msg.textContent = err.message; }
+      busy = false;
+    }
+    function onKey(e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (/^\d$/.test(e.key)) { e.preventDefault(); press(e.key); } else if (e.key === 'Backspace') { e.preventDefault(); press('del'); }
+    }
+    document.addEventListener('keydown', onKey, true);
+    draw();
+    document.body.append(screen);
+    if (status.waitSeconds > 0) countdown(status.waitSeconds);
+  });
+}
+
+/** Lock now. An automatic lock never throws away reports that are being read or waiting on Verify values. */
+async function lockNow({ auto = false } = {}) {
+  if (!state.lock?.enabled) return;
+  const waiting = state.queue.filter((q) => q.status === 'parsing' || q.status === 'ready').length;
+  if (waiting && auto) return;
+  if (waiting && !confirm(`${waiting} report${waiting === 1 ? ' is' : 's are'} still being read or waiting on Verify values and will be lost if you lock now. Lock anyway?`)) return;
+  closeModal();
+  await call(api.lockNow());
+  location.reload(); // start again from the lock screen, with nothing left in memory
+}
+
+function renderLockBtn() { $('#lockBtn').hidden = !state.lock?.enabled; }
+
+function startAutoLock() {
+  for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel']) window.addEventListener(ev, () => { lastActivity = Date.now(); }, { passive: true, capture: true });
+  setInterval(() => {
+    const m = state.lock?.autoLockMinutes;
+    if (m && Date.now() - lastActivity >= m * 60000) lockNow({ auto: true });
+  }, 15000);
+  // Screen locked or computer asleep: lock too, when an automatic time is chosen.
+  api.onSystemLock?.(() => { if (state.lock?.autoLockMinutes) lockNow({ auto: true }); });
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'l' && state.lock?.enabled) { e.preventDefault(); lockNow(); }
+  });
+}
+
+const pinInput = (label) => h('input', {
+  class: 'pin-input', type: 'password', inputmode: 'numeric', maxlength: PIN_LEN, autocomplete: 'off', placeholder: '••••', 'aria-label': label,
+  oninput: (e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, PIN_LEN); },
+});
+
+/** mode: 'set' | 'change' | 'off' */
+function pinModal(mode) {
+  const current = mode === 'set' ? null : pinInput('Current PIN');
+  const next = mode === 'off' ? null : pinInput('New PIN');
+  const again = mode === 'off' ? null : pinInput('New PIN again');
+  const msg = h('p', { class: 'small', style: { color: 'var(--crit)', minHeight: '1.4em', margin: '8px 0 0' }, role: 'alert' });
+  const title = { set: 'Set a PIN', change: 'Change PIN', off: 'Turn off the PIN' }[mode];
+  const go = h('button', { class: `btn ${mode === 'off' ? 'danger' : 'primary'}`, type: 'submit' }, { set: 'Turn on PIN', change: 'Change PIN', off: 'Turn off' }[mode]);
+  const form = h('form', { class: 'pin-form', onsubmit: async (e) => {
+    e.preventDefault();
+    msg.textContent = '';
+    const re = new RegExp(`^\\d{${PIN_LEN}}$`);
+    if (current && !re.test(current.value)) { msg.textContent = `Enter your current ${PIN_LEN}-digit PIN.`; current.focus(); return; }
+    if (next && !re.test(next.value)) { msg.textContent = `The new PIN must be exactly ${PIN_LEN} digits.`; next.focus(); return; }
+    if (next && next.value !== again.value) { msg.textContent = 'The two new PINs don’t match.'; again.value = ''; again.focus(); return; }
+    go.disabled = true;
+    try {
+      state.lock = await call(mode === 'off' ? api.removePin(current.value) : api.setPin(next.value, current?.value));
+      closeModal();
+      renderLockBtn();
+      toast({ set: `PIN set. RADHA will ask for it when it opens.`, change: 'PIN changed.', off: 'PIN turned off.' }[mode]);
+      render();
+    } catch (err) {
+      msg.textContent = err.message;
+      if (current) { current.value = ''; current.focus(); }
+      go.disabled = false;
+    }
+  } },
+    h('h2', { style: { marginTop: 0 } }, title),
+    mode === 'set' ? h('p', { class: 'muted' }, `Choose ${PIN_LEN} digits. RADHA will ask for them every time it opens. Avoid easy ones like 1234 or your birth year.`) : null,
+    current ? h('label', { class: 'field' }, 'Current PIN', current) : null,
+    next ? h('label', { class: 'field mt' }, 'New PIN', next) : null,
+    again ? h('label', { class: 'field mt' }, 'New PIN again', again) : null,
+    msg,
+    h('div', { class: 'row mt' }, h('span', { class: 'spacer' }), h('button', { class: 'btn', type: 'button', onclick: closeModal }, 'Cancel'), go));
+  openModal(form);
+  document.querySelector('.modal-wrap').classList.add('narrow');
+  (current || next).focus();
+}
+
+function appLockCard() {
+  const l = state.lock || {};
+  const note = h('p', { class: 'small muted' }, 'The PIN keeps the RADHA window closed to other people using this computer. It does not encrypt the files on disk. A forgotten PIN can’t be recovered: quit RADHA and delete ',
+    h('b', {}, 'app-lock.json'), ' from its data folder to remove it (your reports are kept). Backups never contain the PIN.');
+  if (!l.enabled) {
+    return h('div', { class: 'card' }, h('h2', {}, '🔒 App lock'),
+      h('p', { style: { marginTop: 0 } }, `Ask for a ${PIN_LEN}-digit PIN every time RADHA opens, so other people using this computer can’t see your reports.`),
+      h('button', { class: 'btn primary', onclick: () => pinModal('set') }, 'Set a PIN'),
+      note);
+  }
+  const sel = h('select', { onchange: async (e) => {
+    try { state.lock = await call(api.setAutoLock(Number(e.target.value))); toast('Saved.'); } catch (err) { toast(err.message, true); }
+  } }, AUTO_LOCK.map(([m, label]) => h('option', { value: String(m), selected: m === (l.autoLockMinutes || 0) }, label)));
+  return h('div', { class: 'card' }, h('h2', {}, '🔒 App lock'),
+    h('p', { style: { marginTop: 0 } }, h('b', {}, 'On.'), ` RADHA asks for your ${PIN_LEN}-digit PIN when it opens.`),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn small', onclick: () => lockNow() }, 'Lock now'),
+      h('button', { class: 'btn small', onclick: () => pinModal('change') }, 'Change PIN'),
+      h('button', { class: 'btn small danger', onclick: () => pinModal('off') }, 'Turn off')),
+    h('label', { class: 'field mt' }, 'Also lock', sel),
+    h('p', { class: 'small muted' }, 'With a time chosen, RADHA also locks when the screen locks or the computer sleeps. It never locks by itself while a report is being read or is waiting on Verify values, so nothing is lost. Lock any time with the 🔒 button or ',
+      h('kbd', {}, state.appInfo?.platform === 'darwin' ? '⌘⇧L' : 'Ctrl+Shift+L'), '.'),
+    note);
+}
+
 // ------------------------------------------------------------------ boot
 async function init() {
   document.querySelectorAll('#nav button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
@@ -2488,6 +2679,14 @@ async function init() {
   });
   $('#exportBtn').addEventListener('click', exportPdf);
   $('#sponsorBtn').addEventListener('click', openSponsor);
+  $('#lockBtn').addEventListener('click', () => lockNow());
+
+  // App lock first: with a PIN set, nothing is loaded (and the main process hands nothing over) until it is entered.
+  try { state.appInfo = await call(api.appInfo()); } catch { state.appInfo = null; }
+  try { state.lock = await call(api.lockStatus()); } catch { state.lock = null; }
+  if (state.lock?.locked) await lockScreen(state.lock);
+  renderLockBtn();
+  startAutoLock();
 
   try { state.settings = await call(api.getSettings()); } catch (err) { toast(err.message, true); }
   state.engine = state.settings.defaultEngine || 'auto';
@@ -2506,7 +2705,6 @@ async function init() {
   refreshPython();
   ensureLibrary().then(() => { if (['calculators', 'library'].includes(state.view)) render(); }).catch(() => {});
   if (state.report && state.lang !== 'en-IN') maybeTranslate();
-  try { state.appInfo = await call(api.appInfo()); } catch { state.appInfo = null; }
   // Installed copies look for a newer release a few seconds after starting (Settings can turn this off).
   if (state.appInfo?.packaged && state.settings.autoUpdateCheck !== false) setTimeout(() => checkUpdates(false), 4000);
 }

@@ -1,7 +1,7 @@
 // RADHA — Electron main process.
 // Owns everything that touches the file system, Python, or the network,
 // and exposes it to the renderer through a narrow IPC surface (see preload.cjs).
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, ShareMenu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, ShareMenu, powerMonitor } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
@@ -14,6 +14,7 @@ import { PROVIDERS, aiChat, aiListModels } from './aiProviders.js';
 import { EngineInstaller, engineList, estimate, managedPython, hasManagedPython, managedEnv } from './engines.js';
 import { checkForUpdate, downloadUpdate, installUpdate, cleanupAfterUpdate } from './updater.js';
 import { newCode, formatCode, encryptShare, decryptShare, checkEnvelope } from './shareCrypto.js';
+import { AppLock } from './appLock.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -21,6 +22,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 let mainWindow;
 let store;
 let installer;
+let appLock;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -60,10 +62,12 @@ function settingsForPython(engine) {
   return { pythonPath, env: pythonPath === managed ? managedEnv(userData) : {}, options, managed: pythonPath === managed };
 }
 
-function wrap(fn) {
+function wrap(fn, { whileLocked = false } = {}) {
   // Return {ok, data | error} so the renderer never sees a raw rejected IPC promise.
+  // While RADHA is locked with a PIN, only the channels marked whileLocked answer.
   return async (_evt, ...args) => {
     try {
+      if (!whileLocked && appLock?.locked) throw new Error('RADHA is locked. Enter your PIN.');
       return { ok: true, data: await fn(...args) };
     } catch (err) {
       console.error(err);
@@ -73,6 +77,15 @@ function wrap(fn) {
 }
 
 function registerIpc() {
+  // App lock (src/main/appLock.js). Everything else below refuses while locked.
+  const open = { whileLocked: true };
+  ipcMain.handle('lock:status', wrap(() => appLock.status(), open));
+  ipcMain.handle('lock:unlock', wrap((pin) => appLock.unlock(pin), open));
+  ipcMain.handle('lock:lock', wrap(() => appLock.lock(), open));
+  ipcMain.handle('lock:showFile', wrap(() => { shell.showItemInFolder(appLock.file); return appLock.file; }, open));
+  ipcMain.handle('lock:setPin', wrap(({ pin, currentPin }) => appLock.setPin(pin, currentPin)));
+  ipcMain.handle('lock:remove', wrap((currentPin) => appLock.removePin(currentPin)));
+  ipcMain.handle('lock:setAutoLock', wrap((minutes) => appLock.setAutoLock(minutes)));
   ipcMain.handle('settings:get', wrap(() => store.getSettings({ redactKey: true })));
   ipcMain.handle('settings:set', wrap((patch) => store.setSettings(patch)));
 
@@ -241,7 +254,7 @@ function registerIpc() {
   ipcMain.handle('shell:openExternal', wrap((url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return true; }));
 
   // Updates (see updater.js): check the latest GitHub release, download + verify, install and restart.
-  ipcMain.handle('app:info', wrap(() => ({ version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged })));
+  ipcMain.handle('app:info', wrap(() => ({ version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged }), { whileLocked: true }));
   ipcMain.handle('update:check', wrap(() => checkForUpdate()));
   ipcMain.handle('update:download', wrap((asset) => downloadUpdate(asset, (f) => mainWindow?.webContents.send('update:progress', f))));
   ipcMain.handle('update:install', wrap((file) => installUpdate(file)));
@@ -278,6 +291,9 @@ app.whenReady().then(async () => {
   }
   store = new Store(app.getPath('userData'));
   await store.load();
+  appLock = await new AppLock(app.getPath('userData')).load();
+  // Screen locked or computer asleep: tell the window, which locks RADHA if an auto-lock time is chosen.
+  for (const evt of ['lock-screen', 'suspend']) powerMonitor.on(evt, () => mainWindow?.webContents.send('lock:system', evt));
   installer = new EngineInstaller(engineHome(), { onProgress: (p) => mainWindow?.webContents.send('engines:progress', p) });
   registerIpc();
   createWindow();

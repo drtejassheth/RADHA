@@ -51,6 +51,19 @@ contextBridge.exposeInMainWorld('radha', {
   openShareFile: () => invoke('share:open'),
   decryptShare: (file, code) => invoke('share:decrypt', { file, code }),
 
+  lockStatus: () => invoke('lock:status'),
+  unlock: (pin) => invoke('lock:unlock', pin),
+  lockNow: () => invoke('lock:lock'),
+  showLockFile: () => invoke('lock:showFile'),
+  setPin: (pin, currentPin) => invoke('lock:setPin', { pin, currentPin }),
+  removePin: (currentPin) => invoke('lock:remove', currentPin),
+  setAutoLock: (minutes) => invoke('lock:setAutoLock', minutes),
+  onSystemLock: (cb) => {
+    const fn = (_e, why) => cb(why);
+    ipcRenderer.on('lock:system', fn);
+    return () => ipcRenderer.removeListener('lock:system', fn);
+  },
+
   appInfo: () => invoke('app:info'),
   checkUpdate: () => invoke('update:check'),
   downloadUpdate: (asset) => invoke('update:download', asset),

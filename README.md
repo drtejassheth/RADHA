@@ -163,7 +163,25 @@ Keys are encrypted with the macOS keychain. **Load models** lists what each prov
 
 - Local engines keep everything on the machine. Reports are stored in `radha-db.json` in the app's user-data folder.
 - The Sarvam parse engine uploads the PDF. The AI narrative and translations send only results and findings, never the patient's name or ID.
+- **App lock:** Settings → App lock sets a 4-digit PIN that RADHA asks for when it opens (see below).
 - Update checks fetch only the latest release information from GitHub (Settings → About & updates can turn them off).
+
+## App lock (4-digit PIN)
+
+**Settings → 🔒 App lock → Set a PIN** makes RADHA ask for a 4-digit PIN every time it opens. Type it on the keyboard or the on-screen keypad.
+- **Lock now** with the 🔒 Lock button in the sidebar or ⌘⇧L (Ctrl+Shift+L on Windows).
+- **Also lock** after 1, 5, 15, 30 or 60 minutes away, and when the screen locks or the computer sleeps. Automatic locking waits while a report is being read or is waiting on Verify values, so nothing is lost.
+- **Change PIN** and **Turn off** need the current PIN.
+- **Wrong PINs:** five free tries, then a wait that starts at 30 seconds and doubles up to 15 minutes. The wait survives restarting RADHA.
+
+How it works (`src/main/appLock.js`):
+- The PIN is never saved. Only a salted scrypt hash is kept, in `app-lock.json` next to the database.
+- The main process enforces the lock: while RADHA is locked, every channel that returns patient data refuses. Locking reloads the window, so nothing stays in memory.
+- Backups never include the PIN.
+
+**Limits:** the lock keeps the RADHA window closed to other people at the computer. It does not encrypt the database on disk; use FileVault or BitLocker for that.
+
+**Forgotten PIN:** quit RADHA and delete `app-lock.json` from its data folder (on a Mac, `~/Library/Application Support/RADHA/`). Your reports and profiles are kept. The lock screen's **Forgot PIN?** shows the file.
 
 ## Updates
 
@@ -178,6 +196,7 @@ RADHA is free. The **♥ Sponsor** button (sidebar, and Settings → About & upd
 ```bash
 npm test                                   # extraction, unit conversion, calculators, analysis
 RADHA_SMOKE=./smoke-out npx electron .     # drives the real UI with demo data, screenshots each view, exports a PDF
+RADHA_SMOKE=./smoke-out RADHA_SCRIPT=test/lock-smoke.js npx electron .   # app lock: set, lock, wrong PINs, unlock, change, turn off
 ```
 
 **Regenerate the guide's screenshots and GIF** (uses the synthetic demo patient):
