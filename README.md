@@ -129,6 +129,14 @@ The **Patients** tab keeps one profile per person:
 
 When a report is verified, it is matched to an existing profile by lab ID or name, or a new profile is created. Profile data fills gaps in reports (sex, DOB → age, height/weight) and pre-fills calculator inputs (blood pressure, BP medicine and smoking for ASCVD; known diabetes for the fatty-liver scores). Reports saved before profiles existed are linked automatically by name.
 
+### Sharing with a doctor
+
+**Share with doctor** on a patient's profile makes, in one click, an encrypted `.radha` file with the profile, clinical record, reports (values, calculators, observations, questions and, optionally, the original report text) and clinical documents. RADHA shows a 12-character **share code**; send the file any way you like (WhatsApp, email, AirDrop: on a Mac the button opens the share menu) and tell the doctor the code separately. The file is saved in *Documents › RADHA Shares*. **Change what is included** lets you leave out reports, the original text, documents or contact details.
+
+The doctor opens the file in **MOHAN** (or RADHA: Patients → **Import shared file**) and types the code. A doctor's app can edit the data and send it back as a new `.radha` file; RADHA's **Import shared file** then lists every change (profile, clinical record, lab values, doctor's notes) and the doctor's change log before anything is applied, and re-checks imported lab values with its own units and ranges.
+
+Encryption: scrypt (N = 2¹⁵) derives the key from the code; AES-256-GCM encrypts the gzipped data. Outside the encryption the file says only which app made it and how many reports it holds. The format is documented in [docs/share-format.md](docs/share-format.md) so other apps can read and write it.
+
 ### Clinical record (filled from documents, with references)
 
 The profile also holds a clinical record modelled on an outpatient diabetes case record: type and year of diagnosis, associated diseases, surgeries, smoking/alcohol/tobacco (amount and years), complications (retinopathy, nephropathy, neuropathy, stroke, heart disease, PVD, amputation), admissions and DKA, immunisation, and examination findings (pulse, sitting and supine BP, ABI, waist and hip, mood, general signs, a ten-point foot examination with pulses, skin, heart, abdomen and nervous system).

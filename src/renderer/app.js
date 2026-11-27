@@ -1047,6 +1047,214 @@ function aboutCard() {
     h('div', { class: 'row' }, SPONSOR_LINKS.map((l) => h('button', { class: 'btn small', onclick: () => api.openExternal(l.url) }, `${l.label} ↗`))));
 }
 
+
+// ------------------------------------------------------------------ share with a doctor (.radha files, docs/share-format.md)
+const CONTACT_FIELDS = ['phone', 'email', 'address'];
+
+/** The payload of a share file for one patient. opts: { reportIds, includeText, includeContact, includeDocuments } */
+function buildSharePayload(p, opts = {}) {
+  const reps = state.reports.filter((r) => r.pid === p.id && (!opts.reportIds || opts.reportIds.includes(r.id)))
+    .sort((a, b) => (a.patient.date || '').localeCompare(b.patient.date || ''));
+  const { documents = [], ...profile } = structuredClone(p);
+  if (opts.includeContact === false) for (const k of CONTACT_FIELDS) profile[k] = '';
+  const usedKeys = new Set();
+  const reports = reps.map((r) => ({
+    id: r.id,
+    date: r.patient.date || '',
+    source: { fileName: r.source?.fileName || '', engine: r.source?.engine || '' },
+    patientAsPrinted: { name: r.patient.name || '', age: r.patient.age ?? null, sex: r.patient.sex || '', patientId: r.patient.patientId || '', lab: r.patient.lab || '' },
+    rows: r.rows.map((x) => { usedKeys.add(x.key); return {
+      key: x.key, name: x.name, panel: x.panel, rawName: x.rawName, rawValue: x.rawValue, rawUnit: x.rawUnit, rawLow: x.rawLow, rawHigh: x.rawHigh,
+      qualifier: x.qualifier || '', flag: x.flag ?? null, value: x.value, unit: x.unit, low: x.low, high: x.high, status: x.status, critical: Boolean(x.critical),
+      rangeSource: x.rangeSource, include: x.include !== false }; }),
+    calculators: r.calc.filter((c) => c.ready).map((c) => ({ id: c.id, name: c.name, value: c.value ?? null, unit: c.unit || '', band: c.band || '', interpretation: c.interpretation || '', reference: c.reference || '' })),
+    analysis: { headline: r.analysis.headline, summary: r.analysis.summary,
+      observations: r.analysis.observations.map((o) => ({ title: o.title, severity: o.severity, detail: o.detail, evidence: o.evidence, nextSteps: o.nextSteps })),
+      questions: r.analysis.questions },
+    rawText: opts.includeText === false ? '' : r.rawText || '',
+    ...(r.doctorNotes ? { doctorNotes: r.doctorNotes } : {}),
+  }));
+  const docs = opts.includeDocuments === false ? [] : documents.map((d) => ({ id: d.id, fileName: d.fileName, date: d.date, rawText: opts.includeText === false ? '' : d.rawText }));
+  return {
+    format: 'radha-share-payload',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    from: { app: 'RADHA', version: state.appInfo?.version || '', role: 'patient' },
+    basedOn: null,
+    patient: profile,
+    reports,
+    documents: docs,
+    dictionary: {
+      biomarkers: Object.fromEntries([...usedKeys].filter((k) => BY_KEY[k]).map((k) => [k, { name: BY_KEY[k].name, unit: BY_KEY[k].unit, panel: BY_KEY[k].panel }])),
+      recordFields: Object.fromEntries(FIELDS.map((f) => [f.key, { label: f.label, section: f.section, type: f.type, ...(f.options ? { options: f.options.map(([v]) => v) } : {}) }])),
+    },
+    revisions: [],
+  };
+}
+
+/** One click: make the encrypted file with everything included, then show the code and ways to send it. */
+async function shareProfile(p, opts = { includeText: true, includeContact: true, includeDocuments: true }) {
+  const payload = buildSharePayload(p, opts);
+  let res;
+  try { res = await call(api.createShare(payload, p.name || 'patient', { reports: payload.reports.length, documents: payload.documents.length })); } catch (err) { toast('Could not create the share file: ' + err.message, true); return; }
+  const mac = state.appInfo?.platform === 'darwin';
+  const reps = state.reports.filter((r) => r.pid === p.id);
+  const chosen = new Set(opts.reportIds || reps.map((r) => r.id));
+  const o = { ...opts };
+  openModal(
+    h('h2', { style: { marginTop: 0 } }, `📤 Share ${p.name}'s profile with a doctor`),
+    h('p', {}, `An encrypted file is ready with the profile, clinical record and ${payload.reports.length} report(s). Send the file to the doctor, and tell them this code separately — for example on a phone call. Anyone with both the file and the code can read it.`),
+    h('div', { class: 'share-code' }, h('span', { class: 'small muted' }, 'Share code'), h('b', {}, res.code),
+      h('button', { class: 'btn small', onclick: async () => { await call(api.copyText(res.code)); toast('Code copied.'); } }, 'Copy code')),
+    h('div', { class: 'row wrap mt' },
+      h('button', { class: 'btn primary', onclick: () => api.shareMenu(res.file) }, mac ? 'Send file… (WhatsApp, Mail, AirDrop…)' : 'Show file to send'),
+      h('button', { class: 'btn', onclick: () => api.showItem(res.file) }, mac ? 'Show in Finder' : 'Show in folder'),
+      h('button', { class: 'btn', onclick: async () => { const to = await call(api.saveShareCopy(res.file)); if (to) toast('Saved a copy.'); } }, 'Save a copy…')),
+    h('p', { class: 'small muted' }, `File: “${res.file.split(/[\\/]/).pop()}” (${fmtMB(res.bytes / 1e6)}), saved in ${mac ? 'Documents › RADHA Shares' : 'Documents\\RADHA Shares'}. The doctor opens it in MOHAN or RADHA (Patients → Import shared file) and types the code.`),
+    h('details', { class: 'mt' }, h('summary', { class: 'small' }, 'Change what is included'),
+      h('div', { class: 'share-opts' },
+        reps.length ? h('div', {}, h('b', { class: 'small' }, 'Reports'), reps.map((r) => h('label', { class: 'row small' },
+          h('input', { type: 'checkbox', checked: chosen.has(r.id), onchange: (e) => { if (e.target.checked) chosen.add(r.id); else chosen.delete(r.id); } }),
+          `${fmtDate(r.patient.date)} · ${r.source?.fileName || 'report'} · ${r.rows.length} tests`))) : null,
+        h('label', { class: 'row small' }, h('input', { type: 'checkbox', checked: o.includeText !== false, onchange: (e) => { o.includeText = e.target.checked; } }), 'Include the original report text (lets the doctor check every value against the report)'),
+        h('label', { class: 'row small' }, h('input', { type: 'checkbox', checked: o.includeDocuments !== false, onchange: (e) => { o.includeDocuments = e.target.checked; } }), 'Include clinical documents (case records)'),
+        h('label', { class: 'row small' }, h('input', { type: 'checkbox', checked: o.includeContact !== false, onchange: (e) => { o.includeContact = e.target.checked; } }), 'Include phone, email and address'),
+        h('button', { class: 'btn small', onclick: () => shareProfile(p, { ...o, reportIds: [...chosen] }) }, 'Make a new file with these choices'))));
+}
+
+// ---- import
+function profileChanges(local, incoming) {
+  const out = [];
+  const skip = new Set(['id', 'record', 'sources', 'documents', 'conditions', 'createdAt', 'updatedAt', 'labIds']);
+  const show = (v) => (v == null || v === '' ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+  for (const k of Object.keys(incoming)) {
+    if (skip.has(k)) continue;
+    if (show(local?.[k]) !== show(incoming[k])) out.push({ what: k, from: show(local?.[k]), to: show(incoming[k]) });
+  }
+  for (const [k, v] of Object.entries(incoming.conditions || {})) if (Boolean(local?.conditions?.[k]) !== Boolean(v)) out.push({ what: `condition: ${k}`, from: local?.conditions?.[k] ? 'yes' : 'no', to: v ? 'yes' : 'no' });
+  for (const [k, v] of Object.entries(incoming.record || {})) {
+    if (show(local?.record?.[k]) !== show(v)) out.push({ what: FIELD[k]?.label || k, from: displayValue(k, local?.record?.[k]), to: displayValue(k, v) });
+  }
+  return out;
+}
+
+function reportChanges(localReps, incomingReps) {
+  const out = [];
+  for (const r of incomingReps) {
+    const l = localReps.find((x) => x.id === r.id);
+    if (!l) { out.push({ what: `New report ${r.date}`, from: '—', to: `${r.rows.length} tests` }); continue; }
+    for (const row of r.rows) {
+      const lr = l.rows.find((x) => x.key === row.key);
+      if (!lr) out.push({ what: `${r.date} · ${row.name}`, from: '—', to: `${row.rawValue} ${row.rawUnit || ''}` });
+      else if (String(lr.rawValue) !== String(row.rawValue) || (lr.rawUnit || '') !== (row.rawUnit || '')) out.push({ what: `${r.date} · ${row.name}`, from: `${lr.rawValue} ${lr.rawUnit || ''}`, to: `${row.rawValue} ${row.rawUnit || ''}` });
+    }
+    if ((r.doctorNotes || '') !== (l.doctorNotes || '')) out.push({ what: `${r.date} · doctor's notes`, from: l.doctorNotes || '—', to: r.doctorNotes || '—' });
+  }
+  return out;
+}
+
+async function importShareFlow() {
+  let meta;
+  try { meta = await call(api.openShareFile()); } catch (err) { toast(err.message, true); return; }
+  if (!meta) return;
+  const codeInput = h('input', { type: 'text', placeholder: 'e.g. K7Q2-9MXR-4TBW', autocomplete: 'off', spellcheck: false, style: { width: '220px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '16px', letterSpacing: '0.08em' } });
+  const err = h('p', { class: 'small', style: { color: 'var(--high)' } });
+  const open = async () => {
+    err.textContent = 'Opening…';
+    try {
+      const payload = await call(api.decryptShare(meta.file, codeInput.value));
+      showImportPreview(meta, payload);
+    } catch (e) { err.textContent = e.message; }
+  };
+  codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+  openModal(
+    h('h2', { style: { marginTop: 0 } }, '⤓ Import shared file'),
+    h('p', {}, h('b', {}, meta.fileName), h('br'), h('span', { class: 'small muted' },
+      `Made by ${meta.createdBy?.app || 'unknown app'}${meta.createdBy?.role ? ` (${meta.createdBy.role})` : ''} on ${new Date(meta.createdAt).toLocaleString()} · ${meta.contents?.reports ?? '?'} report(s), ${meta.contents?.documents ?? 0} document(s)`)),
+    h('div', { class: 'row' }, h('label', { class: 'field' }, 'Share code', codeInput), h('button', { class: 'btn primary', style: { alignSelf: 'flex-end' }, onclick: open }, 'Open')),
+    err);
+  requestAnimationFrame(() => codeInput.focus());
+}
+
+function showImportPreview(meta, payload) {
+  const inc = payload.patient || {};
+  const byId = state.patients.find((x) => x.id === inc.id);
+  const byName = !byId && state.patients.find((x) => patientKey({ name: x.name }) === patientKey({ name: inc.name || '' }));
+  let target = byId?.id || byName?.id || 'new';
+  const reps = payload.reports || [];
+  const revs = payload.revisions || [];
+  const body = h('div');
+  const draw = () => {
+    const local = profileOf(target);
+    const changes = local ? [...profileChanges(local, inc), ...reportChanges(state.reports.filter((r) => r.pid === local.id), reps)] : [];
+    body.replaceChildren(
+      h('div', { class: 'row mb' }, h('span', { class: 'small muted' }, 'Import into'),
+        h('select', { onchange: (e) => { target = e.target.value; draw(); } },
+          h('option', { value: 'new', selected: target === 'new' }, `➕ New patient: ${inc.name || 'Unnamed'}`),
+          [...state.patients].sort((a, b) => a.name.localeCompare(b.name)).map((x) => h('option', { value: x.id, selected: x.id === target }, `Update ${x.name}${x.id === inc.id ? ' (same patient)' : ''}`)))),
+      local ? (changes.length ? h('div', {}, h('b', {}, `${changes.length} change(s) to ${local.name}'s records:`),
+        h('div', { class: 'table-wrap mt' }, h('table', { class: 'small' }, h('thead', {}, h('tr', {}, ['What', 'Now', 'In the file'].map((t) => h('th', {}, t)))),
+          h('tbody', {}, changes.slice(0, 200).map((c) => h('tr', {}, h('td', {}, c.what), h('td', { class: 'muted' }, c.from), h('td', {}, h('b', {}, c.to))))))))
+        : h('p', { class: 'muted' }, 'The file matches what this patient already has.')) : null);
+  };
+  draw();
+  openModal(
+    h('h2', { style: { marginTop: 0 } }, `Shared by ${payload.from?.role === 'doctor' ? 'a doctor' : 'a patient'}: ${inc.name || 'Unnamed patient'}`),
+    h('p', { class: 'small muted' }, [inc.sex === 'M' ? 'Male' : inc.sex === 'F' ? 'Female' : null, inc.dob ? `born ${fmtDate(inc.dob)}` : null,
+      `${reps.length} report(s)`, `${(payload.documents || []).length} document(s)`, `from ${payload.from?.app || '?'} ${payload.from?.version || ''}`].filter(Boolean).join(' · ')),
+    revs.length ? h('div', { class: 'card mb' }, h('b', {}, 'Changes recorded in the file'), h('ul', { class: 'small' },
+      revs.map((r) => h('li', {}, `${new Date(r.at).toLocaleString()} — ${r.by?.name || r.by?.role || 'someone'} (${r.by?.app || ''}): ${r.summary || `${(r.changes || []).length} change(s)`}`)))) : null,
+    body,
+    h('div', { class: 'row mt' }, h('span', { class: 'spacer' }),
+      h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
+      h('button', { class: 'btn primary', onclick: () => applyImport(payload, target, meta) }, 'Import')));
+}
+
+/** Rows from a file, re-derived from their printed values so status and standard units are RADHA's own. */
+function importRows(rows, sex) {
+  return rows.map((x) => {
+    const nr = buildRow({ key: x.key, rawName: x.rawName || x.name, value: x.rawValue ?? x.value, unit: x.rawUnit ?? x.unit, low: x.rawLow ?? x.low, high: x.rawHigh ?? x.high, qualifier: x.qualifier || '', flag: x.flag ?? null, source: 'shared' }, sex);
+    nr.include = x.include !== false;
+    return nr;
+  });
+}
+
+async function applyImport(payload, target, meta) {
+  const inc = structuredClone(payload.patient || {});
+  try {
+    const local = profileOf(target);
+    let pid;
+    if (!local) {
+      const idTaken = state.patients.some((x) => x.id === inc.id);
+      const saved = await call(api.savePatient({ ...inc, id: idTaken || !inc.id ? crypto.randomUUID() : inc.id, documents: payload.documents || [] }));
+      pid = saved.id;
+    } else {
+      const merged = { ...local, ...inc, id: local.id,
+        record: { ...(local.record || {}), ...(inc.record || {}) }, sources: { ...(local.sources || {}), ...(inc.sources || {}) },
+        conditions: { ...(local.conditions || {}), ...(inc.conditions || {}) },
+        labIds: [...new Set([...(local.labIds || []), ...(inc.labIds || [])])],
+        documents: [...(local.documents || []), ...(payload.documents || []).filter((d) => !(local.documents || []).some((x) => x.id === d.id))] };
+      await call(api.savePatient(merged));
+      pid = local.id;
+    }
+    const sex = inc.sex || local?.sex || '';
+    for (const r of payload.reports || []) {
+      const existing = state.reports.find((x) => x.id === r.id);
+      const id = existing && existing.pid !== pid ? crypto.randomUUID() : r.id;
+      await call(api.saveReport({ id, pid, createdAt: existing?.createdAt || new Date().toISOString(),
+        patient: { name: r.patientAsPrinted?.name || inc.name || '', age: r.patientAsPrinted?.age ?? null, sex: r.patientAsPrinted?.sex || sex, date: r.date, patientId: r.patientAsPrinted?.patientId || '', lab: r.patientAsPrinted?.lab || '' },
+        rows: importRows(r.rows || [], sex), source: { ...(r.source || {}), importedFrom: meta.fileName }, rawText: r.rawText || existing?.rawText || '',
+        calcInputs: existing?.calcInputs || {}, ...(r.doctorNotes ? { doctorNotes: r.doctorNotes } : {}) }));
+    }
+    await reloadReports();
+    closeModal();
+    state.patientSel = pid;
+    state.activePid = pid;
+    toast(local ? `${local.name}'s records updated from the shared file.` : 'Patient imported from the shared file.');
+    setView('patients');
+  } catch (e) { toast('Import failed: ' + e.message, true); }
+}
+
 // ------------------------------------------------------------------ dashboard
 function viewDashboard() {
   const r = state.report;
@@ -1087,6 +1295,7 @@ function viewDashboard() {
   const calcFlag = calcReady.filter((x) => x.severity && x.severity !== 'ok').length;
 
   const node = h('div', {},
+    r.doctorNotes ? h('div', { class: 'card mb doctor-notes' }, h('h2', {}, '🩺 Doctor’s notes'), h('p', { style: { margin: 0, whiteSpace: 'pre-wrap' } }, r.doctorNotes)) : null,
     h('div', { class: 'grid cols-5' },
       kpi('', c.total, 'Total tests processed'),
       kpi('normal', c.normal, 'Normal'),
@@ -1948,6 +2157,7 @@ function viewPatients() {
     h('div', { class: 'row mb' }, search,
       h('button', { class: 'btn primary', onclick: newPatientProfile }, '+ New patient'),
       h('span', { class: 'spacer' }),
+      h('button', { class: 'btn', title: 'Open a .radha file shared by a patient or sent back by a doctor', onclick: importShareFlow }, '⤓ Import shared file'),
       h('button', { class: 'btn', title: 'Save all patients and reports to a backup file', onclick: backupData }, '⤓ Backup all data'),
       h('button', { class: 'btn', title: 'Restore patients and reports from a backup file', onclick: restoreData }, '⤒ Restore backup')),
     h('div', { class: 'lib-grid' }, listEl, h('div', { class: 'lib-detail' }, detail)));
@@ -1994,6 +2204,7 @@ function patientPanel(p) {
     h('div', { class: 'card patient-form' },
       h('div', { class: 'row mb' }, h('h2', { style: { margin: 0 } }, p.name), h('span', { class: 'spacer' }),
         reps.length ? h('button', { class: 'btn', onclick: () => openPatient(p.id) }, 'Open latest report →') : null,
+        h('button', { class: 'btn share-btn', title: 'Make an encrypted file of this profile and its reports to send to a doctor', onclick: () => shareProfile(p) }, '📤 Share with doctor'),
         h('button', { class: 'btn primary', onclick: save }, 'Save profile')),
       h('h3', {}, 'Identity & contact'),
       h('div', { class: 'form-grid' },

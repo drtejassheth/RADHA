@@ -43,6 +43,13 @@ contextBridge.exposeInMainWorld('radha', {
   exportPdf: (html, suggestedName) => invoke('export:pdf', { html, suggestedName }),
   showItem: (p) => invoke('shell:showItem', p),
   openExternal: (url) => invoke('shell:openExternal', url),
+  copyText: (text) => invoke('clipboard:write', text),
+
+  createShare: (payload, fileName, contents) => invoke('share:create', { payload, fileName, contents }),
+  shareMenu: (file) => invoke('share:menu', file),
+  saveShareCopy: (file) => invoke('share:saveCopy', file),
+  openShareFile: () => invoke('share:open'),
+  decryptShare: (file, code) => invoke('share:decrypt', { file, code }),
 
   appInfo: () => invoke('app:info'),
   checkUpdate: () => invoke('update:check'),

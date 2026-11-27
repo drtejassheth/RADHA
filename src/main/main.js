@@ -1,7 +1,7 @@
 // RADHA — Electron main process.
 // Owns everything that touches the file system, Python, or the network,
 // and exposes it to the renderer through a narrow IPC surface (see preload.cjs).
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, ShareMenu } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
@@ -13,6 +13,7 @@ import { Store } from './store.js';
 import { PROVIDERS, aiChat, aiListModels } from './aiProviders.js';
 import { EngineInstaller, engineList, estimate, managedPython, hasManagedPython, managedEnv } from './engines.js';
 import { checkForUpdate, downloadUpdate, installUpdate, cleanupAfterUpdate } from './updater.js';
+import { newCode, formatCode, encryptShare, decryptShare, checkEnvelope } from './shareCrypto.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -206,6 +207,37 @@ function registerIpc() {
   }));
 
   ipcMain.handle('shell:showItem', wrap((p) => shell.showItemInFolder(p)));
+  // Sharing a patient with a doctor (.radha files, see docs/share-format.md).
+  ipcMain.handle('share:create', wrap(async ({ payload, fileName, contents }) => {
+    const code = newCode();
+    const env = await encryptShare(payload, { code, contents, createdBy: { app: 'RADHA', version: app.getVersion(), role: 'patient' } });
+    const dir = process.env.RADHA_SHARE_DIR || path.join(app.getPath('documents'), 'RADHA Shares');
+    await fs.mkdir(dir, { recursive: true });
+    const safe = String(fileName || 'patient').replace(/[^\w .-]+/g, '').trim().slice(0, 60) || 'patient';
+    const file = path.join(dir, `${safe} ${new Date().toISOString().slice(0, 10)} ${code.slice(0, 4)}.radha`);
+    await fs.writeFile(file, JSON.stringify(env), 'utf8');
+    return { file, code: formatCode(code), shareId: env.shareId, bytes: (await fs.stat(file)).size };
+  }));
+  ipcMain.handle('share:menu', wrap(async (file) => {
+    if (process.platform === 'darwin' && ShareMenu) { new ShareMenu({ filePaths: [file] }).popup({ window: mainWindow }); return 'menu'; }
+    shell.showItemInFolder(file);
+    return 'folder';
+  }));
+  ipcMain.handle('share:saveCopy', wrap(async (file) => {
+    const res = await dialog.showSaveDialog(mainWindow, { defaultPath: path.basename(file), filters: [{ name: 'RADHA share file', extensions: ['radha'] }] });
+    if (res.canceled || !res.filePath) return null;
+    await fs.copyFile(file, res.filePath);
+    return res.filePath;
+  }));
+  ipcMain.handle('share:open', wrap(async () => {
+    const res = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], filters: [{ name: 'RADHA share file', extensions: ['radha', 'json'] }] });
+    if (res.canceled || !res.filePaths[0]) return null;
+    const file = res.filePaths[0];
+    const env = checkEnvelope(JSON.parse(await fs.readFile(file, 'utf8')));
+    return { file, fileName: path.basename(file), createdAt: env.createdAt, createdBy: env.createdBy, contents: env.contents, shareId: env.shareId };
+  }));
+  ipcMain.handle('share:decrypt', wrap(async ({ file, code }) => decryptShare(JSON.parse(await fs.readFile(file, 'utf8')), code)));
+  ipcMain.handle('clipboard:write', wrap((text) => { clipboard.writeText(String(text)); return true; }));
   ipcMain.handle('shell:openExternal', wrap((url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return true; }));
 
   // Updates (see updater.js): check the latest GitHub release, download + verify, install and restart.

@@ -325,3 +325,11 @@ span.src-tag.muted:hover { text-decoration: none; }
 .update-progress > div { height: 100%; background: var(--accent); transition: width 0.2s; }
 @media (prefers-color-scheme: dark) { .sponsor-btn { color: #f48fb1; } .sponsor-btn:hover { background: rgba(244, 143, 177, 0.12); border-color: #f48fb1; } }
 .update-bar[hidden] { display: none; }
+
+/* Share with a doctor */
+.share-code { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 10px; background: var(--accent-soft); flex-wrap: wrap; }
+.share-code b { font: 700 26px/1 ui-monospace, Menlo, monospace; letter-spacing: 0.08em; color: var(--accent); }
+.share-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.share-opts label { gap: 8px; }
+.doctor-notes { border-left: 4px solid var(--accent); }
+.doctor-notes h2 { font-size: 15px; margin: 0 0 6px; }
